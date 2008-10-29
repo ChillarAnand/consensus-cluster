@@ -1,0 +1,85 @@
+ConsensusCluster PCA and Clustering Utility
+
+Copyright Michael Seiler 2008
+
+Rutgers University
+miseiler@gmail.com
+
+------------------------
+
+Contents:
+
+	1. Installation
+
+	2. Running
+
+------------------------
+
+
+1. INSTALLATION
+
+	A. Dependencies
+
+		This program requires the following packages to be correctly installed:
+
+		Python				>= 2.5
+		Python-numpy		>= 1.1.0
+
+		In addition, the following optional packages greatly enhance capability:	
+	
+		Python-matplotlib	>= 0.98.0	(For plots)
+		Python-pil			>= 1.1.6	(For consensus matrix heatmaps)
+		Python-pygtk					(GUI)
+	
+		psyco		(JIT compiler, speed)
+		GCC			(Compiler, see Optionally Compile C Extensions below)
+		GNU Make	(see Optionally Compile C Extensions below)
+		pyMPI		(MPI-compatibility, enables multiprocessor support)
+
+		Optional dependencies are not required and the program will function without them.
+
+		This program *MAY* work with versions earlier than those listed, but this has not been tested
+		and such use is unsupported.
+
+	B. Installation
+
+		To install, simply untar the package into a new directory.
+
+	C. Optionally Compile C Extensions (Linux)
+
+		Optionally, one can compile the external C modules, which are located in the euclidean and SA directories.
+		To compile these, change to the directory, and run make.
+
+		Example:
+
+			cd euclidean
+			make && make install
+
+		Compilation requires python development files, numpy development files, GCC, and GNU make.
+
+		These extensions are not required, however the program is much slower without them.
+
+	D. Install precompiled 32-bit C Extensions (Windows)
+
+		Run the installers in the euclidean and SA directories.
+		
+		These extensions are not required, however the program is much slower without them.
+
+2. RUNNING
+
+	A. Running ConsensusCluster (Single Processor, Linux and Windows)
+
+		To run the program, simply type the following from the installation directory:
+	
+			python common.py
+	
+		Or run common.py from any file manager.
+
+	B. Running ConsensusCluster (MultiProcessor, Linux)
+
+		If pyMPI is installed and MPI is setup correctly, the following command enables multiprocessor support:
+	
+			mpirun -np 2 pyMPI migration.py
+	
+		Replace "mpirun -np 2" with the appropriate MPI command as required by your MPI installation.
+
