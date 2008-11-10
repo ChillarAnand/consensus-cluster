@@ -212,32 +212,37 @@ class CommonCluster(object):
 
         console = self.console
     
-        if parser is None or filename is None:
-            console.except_to_console('No parser or no filename selected!')
+        try:
 
-        self.sdata = console.announce_wrap('Parsing data...', parser, filename)
-
-        if self.keep_list is not None:
-            self.sdata, self.defined_clusters = console.announce_wrap('Removing samples not found in %s...' % ", ".join(self.keep_list), scale_to_set, self.sdata, self.keep_list)
-
-        console.announce_wrap('Preprocessing data...', self._preprocess)
-
-        idlist = [ x.sample_id for x in self.sdata.samples ]
-        if len(dict.fromkeys(idlist)) != len(idlist):
-            console.except_to_console('One or more Sample IDs are not unique!')
-
-        console.announce_wrap('Running PCA...', self.run_pca, log2, sub_medians, center, scale, pca_fraction, eigenvector_weight)
-        console.announce_wrap('Postprocessing data...', self._postprocess)
-
-        console.write("Using MPI?")
+            if parser is None or filename is None:
+                console.except_to_console('No parser or no filename selected!')
     
-        if MPI_ENABLED:
-            console.success()
-        else:
-            console.fail()
+            self.sdata = console.announce_wrap('Parsing data...', parser, filename)
+    
+            if self.keep_list is not None:
+                self.sdata, self.defined_clusters = console.announce_wrap('Removing samples not found in %s...' % ", ".join(self.keep_list), scale_to_set, self.sdata, self.keep_list)
+    
+            console.announce_wrap('Preprocessing data...', self._preprocess)
+    
+            idlist = [ x.sample_id for x in self.sdata.samples ]
+            if len(dict.fromkeys(idlist)) != len(idlist):
+                console.except_to_console('One or more Sample IDs are not unique!')
+    
+            console.announce_wrap('Running PCA...', self.run_pca, log2, sub_medians, center, scale, pca_fraction, eigenvector_weight)
+            console.announce_wrap('Postprocessing data...', self._postprocess)
+    
+            console.write("Using MPI?")
+        
+            if MPI_ENABLED:
+                console.success()
+            else:
+                console.fail()
+    
+            for i in kvalues:
+                self.run_cluster(i, subsamples, subsample_fraction, norm_var, kwds)
 
-        for i in kvalues:
-            self.run_cluster(i, subsamples, subsample_fraction, norm_var, kwds)
+        except:
+            pass
 
         self._complete_clustering()
 
@@ -614,7 +619,8 @@ class CommonCluster(object):
 
         """
 
-        del self.sdata  #Safe side.
+        if hasattr(self, 'sdata'):
+            del self.sdata  #Safe side.
 
         if isinstance(self, Gtk_UI):
 
