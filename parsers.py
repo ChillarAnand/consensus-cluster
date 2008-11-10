@@ -478,3 +478,21 @@ def read_table(filename):
             conv[a[0]] = " - ".join(a[1:]).strip()
 
     return conv
+
+def get_list_from_file(filename):
+    """
+
+    get_list_from_file(filename)
+
+        Simply returns a concatenated list of every line in filename, with the newlines stripped
+
+    Returns: A list of strings
+
+    """
+
+    handle = open(filename, 'r')
+    entries = [ x.strip() for x in handle ]
+    handle.close()
+
+    return entries
+

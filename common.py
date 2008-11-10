@@ -46,22 +46,42 @@ if display.GTK_ENABLED:
     import gtk, gobject
 
 
-def get_list_from_file(filename):
+def union(list1, list2):
+    """
+    Remove the indices which make up the union between two lists in log n time
+    
+    Returns a tuple, where tuple[0] is the list of indices in list1 which is in common with list2, and tuple[1]
+    is the same list for list2
+
     """
 
-    get_list_from_file(filenames)
+    swapped = False
+    if len(list1) > len(list2):         #Make list2 the longer one
+        list1, list2 = list2, list1
+        swapped = True
 
-        Simply returns a concatenated list of every line in filename, with the newlines stripped
+    indices_list1 = numpy.argsort(list1)
+    indices_list2 = numpy.argsort(list2)
 
-    Returns: A list of strings
+    union_indices_list1 = []
+    union_indices_list2 = []
+    
+    breakpoint = 0
 
-    """
+    for i in indices_list1:    
+        for j in range(len(indices_list2))[breakpoint:]:    #Ugly, but reduces complexity
+            idx = indices_list2[j]
 
-    handle = open(filename, 'r')
-    entries = [ x.strip() for x in handle ]
-    handle.close()
+            if list1[i] == list2[idx]:
+                union_indices_list1.append(i)
+                union_indices_list2.append(idx)
+                breakpoint = j
+                break
 
-    return entries
+    if not swapped:
+        return union_indices_list1, union_indices_list2
+
+    return union_indices_list2, union_indices_list1
 
 def scale_to_set(sdata, filenames):
     """
@@ -80,16 +100,21 @@ def scale_to_set(sdata, filenames):
 
     for filename in filenames:
         name = os.path.basename(filename)
-        defined_clusters[name] = get_list_from_file(filename)
+        defined_clusters[name] = parsers.get_list_from_file(filename)
 
-    sample_list = sum([ defined_clusters[x] for x in defined_clusters ], [])
+    samples_to_keep = sum([ defined_clusters[x] for x in defined_clusters ], [])
+
+    sample_id_list = [ x.sample_id for x in sdata.samples ]
     
-    sdata.samples = [ x for x in sdata.samples if x.sample_id in sample_list ]
+    sample_indices = union(sample_id_list, samples_to_keep)[0]
+    sdata.samples = [ sdata.samples[x] for x in sample_indices ] #Adjustment
 
-    sample_list = [ x.sample_id for x in sdata.samples ]
-
-    for name in defined_clusters:
-        defined_clusters[name] = [ x for x in defined_clusters[name] if x in sample_list ]
+    sample_id_list = [ x.sample_id for x in sdata.samples ] #This is different!
+    
+    for name in defined_clusters: #If samples aren't in the main, ignore them
+        sample_list = defined_clusters[name]
+        def_indices = union(sample_list, sample_id_list)[0]
+        defined_clusters[name] = [ sample_list[x] for x in def_indices ]
 
     return sdata, defined_clusters
 
@@ -109,7 +134,7 @@ def scale_probes(sdata, filename):
 
     """
 
-    probes_to_keep = [ x for x in xrange(len(sdata.gene_names)) if sdata.gene_names[x] in get_list_from_file(filename) ]
+    probes_to_keep = union(sdata.gene_names, parsers.get_list_from_file(filename))[0]
 
     sdata.gene_names = sdata.gene_names.take(tuple(probes_to_keep))
 
@@ -214,6 +239,8 @@ class CommonCluster(object):
         for i in kvalues:
             self.run_cluster(i, subsamples, subsample_fraction, norm_var, kwds)
 
+        self._complete_clustering()
+
     @only_once
     def makeplot(self, M, V, label):
         """
@@ -298,6 +325,8 @@ class CommonCluster(object):
                 for name in self.sdata.gene_names:
                     console.log("%s" % name, display=False)
     
+        console = self.console
+
         if MPI_ENABLED:
             sleep_nodes(2)
 
@@ -306,7 +335,6 @@ class CommonCluster(object):
                 reduce(M, gene_indices)
                 return
     
-        console = self.console
         console.new_logfile('PCA results')
         
         M = numpy.array([ x.data for x in self.sdata.samples ])
@@ -576,7 +604,25 @@ class CommonCluster(object):
         """
 
         pass
-    
+
+    def _complete_clustering(self):
+        """
+
+        Run when the clustering finishes.
+
+        Right now it just ungreys the button and resets graphical things.
+
+        """
+
+        del self.sdata  #Safe side.
+
+        if isinstance(self, Gtk_UI):
+
+            if hasattr(self, 'startbutton'):
+                self.startbutton.set_sensitive(True)
+
+            self.mpi_wait_for_start()
+
 
 class Gtk_UI(CommonCluster):
     """
@@ -616,15 +662,21 @@ class Gtk_UI(CommonCluster):
             
             self.load_display(*args, **kwds)
 
-            if MPI_ENABLED:
-                sleep_nodes(1)
+            self.mpi_wait_for_start()
 
-                if mpi.rank != 0:
-                    t_args = mpi.bcast()    #Block until we get the go-ahead from 0
-
-                    if t_args is not None:
-                        thread_watcher(CommonCluster.__init__, (self, t_args[0], t_args[1]), t_args[2])
     
+    def mpi_wait_for_start(self):
+        """Tells the other nodes to sleep until Begin Clustering is pressed"""
+
+        if MPI_ENABLED:
+            sleep_nodes(1)
+
+            if mpi.rank != 0:
+                t_args = mpi.bcast()    #Block until we get the go-ahead from 0
+
+                if t_args is not None:
+                    thread_watcher(CommonCluster.__init__, (self, t_args[0], t_args[1]), t_args[2])
+
     @only_once
     def load_display(self, *args, **kwds):
             
@@ -859,7 +911,7 @@ class Gtk_UI(CommonCluster):
 
         args = {}
 
-        for setting in self.settings:
+        for setting in self.settings: #So only arguments from self.settings go to cluster...
             args[setting] = self.settings[setting]()
 
         if MPI_ENABLED:
@@ -949,7 +1001,9 @@ class Gtk_UI(CommonCluster):
             self.keep_list = chooser.get_filenames()
 
         chooser.destroy()
-        Thread(target=self._announce_keep_list).start()
+
+        if self.keep_list is not None:
+            Thread(target=self._announce_keep_list).start()
 
     def _set_defaults(self, args, kwds):
 

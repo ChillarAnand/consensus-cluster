@@ -57,6 +57,9 @@ def pca(M, frac):
         if numpy.sum(variance_fractions[:i], 0) >= frac:
             break
 
+    if i < 2:
+        i = 2   #Minimum 2
+
     #return numpy.transpose(numpy.dot(v[:i], numpy.transpose(M))) #The transformed data
     return v[:i]
     

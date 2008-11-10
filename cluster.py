@@ -554,14 +554,15 @@ class ConsensusCluster(object):
     """
 
     def __init__(self, sdata, num_clusters=2, distance_metric=distance.euclidean, subsamples=50, subsample_fraction=None, norm_var=False, 
-                 clustering_algs=[KMeansCluster], linkages=['average'], final_alg='Hierarchical', console=None, **kwds):
+                 clustering_algs=[KMeansCluster], linkages=['average'], final_alg='Hierarchical', console=None, matrix_thresh=0.0, **kwds):
 
         dim = len(sdata.samples)
         mat = numpy.zeros((dim, dim), dtype=float)
 
         self.__dict__ = { 'reset_datapoints': False, 'datapoints': sdata.samples, 'num_clusters': num_clusters, 'distance_metric': distance_metric,
                           'sim_matrix_clustcount': mat.copy(), 'sim_matrix_totalcount': mat.copy(), 'consensus_matrix': mat.copy(), 'tree': None,
-                          'norm_var': norm_var, 'clustering_algs': clustering_algs, 'linkages': linkages, 'final_alg': final_alg, 'console': console }
+                          'norm_var': norm_var, 'clustering_algs': clustering_algs, 'linkages': linkages, 'final_alg': final_alg, 'console': console,
+                          'matrix_thresh': matrix_thresh }
                          
         if console is None:
             self.console = display.ConsoleDisplay(log=False)
@@ -688,12 +689,17 @@ class ConsensusCluster(object):
         num_samples = len(self.datapoints)
         consensus_matrix = self.consensus_matrix
 
+        thresh = self.matrix_thresh #Values may not be lower than this before being set to 0
+
         for i in xrange(num_samples):
             for j in xrange(1, num_samples - i):
                 k, m = i, i+j
 
                 if final_matrix_totalcount[k][m]:
                     consensus_matrix[k][m] = final_matrix_clustcount[k][m] / final_matrix_totalcount[k][m]
+
+                    if consensus_matrix[k][m] < thresh:
+                        consensus_matrix[k][m] = 0.0
 
         return consensus_matrix + consensus_matrix.transpose()
 
