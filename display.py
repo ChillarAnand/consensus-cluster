@@ -611,7 +611,7 @@ class Plot(object):
 
         if MATPLOTLIB_ENABLED:
     
-            self.colours = ['b+', 'g+', 'r+', 'c+', 'm+', 'k+'] #Blue, green, red, cyan, magenta, black...visible on white bg
+            self.colours = ['b+', 'g+', 'r+', 'c+', 'm+', 'k+', 'y+'] #Blue, green, red, cyan, magenta, black...visible on white bg.  Nov 25 added yellow. Not so visible.
 
             self.legend = legend
 

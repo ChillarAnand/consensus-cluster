@@ -25,6 +25,9 @@ along with ConsensusCluster.  If not, see <http://www.gnu.org/licenses/>.
 
 """
 
+import warnings
+warnings.simplefilter('ignore', DeprecationWarning)
+
 import numpy, sys, time, os
 import pca, parsers, cluster, display
 
@@ -244,7 +247,7 @@ class CommonCluster(object):
         except:
             pass
 
-        self._complete_clustering()
+        self._complete_clustering(kwds)
 
     @only_once
     def makeplot(self, M, V, label):
@@ -324,8 +327,8 @@ class CommonCluster(object):
             if hasattr(self.sdata, 'gene_names') and len(self.sdata.gene_names):
                 self.sdata.gene_names = self.sdata.gene_names.take(gene_indices)
 
-                console.new_logfile('PCA Results - Probe list')
-                console.log("\nReliable gene probes:\n", display=False)
+                console.new_logfile('PCA Results - Feature list')
+                console.log("\nReliable features:\n", display=False)
                 
                 for name in self.sdata.gene_names:
                     console.log("%s" % name, display=False)
@@ -353,7 +356,7 @@ class CommonCluster(object):
         gene_indices = pca.select_genes(V, eigenvector_weight)
     
         console.log("Found %s principle components in the top %s fraction" % (len(V), pca_fraction))
-        console.log("Found %s reliable genes occurring with high weight (top %s by absolute value)" % (len(gene_indices), eigenvector_weight))
+        console.log("Found %s reliable features occurring with high weight (top %s by absolute value)" % (len(gene_indices), eigenvector_weight))
         
         self.makeplot(M, V, 'PCA results - All samples')
     
@@ -478,7 +481,7 @@ class CommonCluster(object):
         console.log("\nClustering results")
         console.log("---------------------")
     
-        console.log("\nNumber of clusters: %s\nNumber of subsamples clustered: %s\nFraction of samples/genes used in subsample: %s" % (kwds['num_clusters'], kwds['subsamples'], kwds['subsample_fraction']))
+        console.log("\nNumber of clusters: %s\nNumber of subsamples clustered: %s\nFraction of samples/features used in subsample: %s" % (kwds['num_clusters'], kwds['subsamples'], kwds['subsample_fraction']))
         console.log("\n---------------------")
         console.log("\nClusters")
 
@@ -498,6 +501,7 @@ class CommonCluster(object):
         M = numpy.array([ x.data for x in clust_data.datapoints ]) 
         
         buffer = []
+        clsbuffer = []
         
         if hasattr(self.sdata, 'gene_names'):
             
@@ -514,14 +518,31 @@ class CommonCluster(object):
     
                         for result in ratios:
                             buffer.append("%10s\t%f\t%f\t%f" % (self.sdata.gene_names[result[1]], result[2], result[3], result[0]))
+
+                    if kwds.has_key('classifier') and kwds['classifier'] and ratios:
+                        clsbuffer.append("\nCluster %s vs %s:" % (clust1[0], clust2[0]))
+                        clsbuffer.append("--------------------\n")
+
+                        classif_list = pca.binary_classifier(M, cluster_sample_indices[clust1[1]], cluster_sample_indices[clust2[1]], threshold)
+                        #Returns (a, b), where a is w in (wi, i) pairs and b is w0
+                        clsbuffer.append("w0 is %s" % classif_list[1])
+                        clsbuffer.append("\nGene ID\t\tMultiplier")
+
+                        for result in classif_list[0]:
+                            clsbuffer.append("%10s\t%f" % (self.sdata.gene_names[result[1]], result[0]))
         
-        if buffer:
+        def write_buffer(name, desc, buf):
+            console.new_logfile(name)
+            console.log(desc, display=False)
 
-            console.new_logfile('SNR Results - %s clusters - %s subsamples' % (kwds['num_clusters'], kwds['subsamples']))
-            console.log("SNR-ranked probes with ratio greater than %s" % threshold, display=False)
-
-            for line in buffer:
+            for line in buf:
                 console.log(line, display=False)
+
+        if buffer:
+            write_buffer('SNR Results - %s clusters - %s subsamples' % (kwds['num_clusters'], kwds['subsamples']), "SNR-ranked features with ratio greater than %s" % threshold, buffer)
+
+        if clsbuffer:
+            write_buffer('Binary Classifier - %s clusters - %s subsamples' % (kwds['num_clusters'], kwds['subsamples']), "Based on SNR-ranked features with ratio greater than %s" % threshold, clsbuffer)
     
     @only_once
     def _save_hmap(self, clust_data, **kwds):
@@ -610,7 +631,7 @@ class CommonCluster(object):
 
         pass
 
-    def _complete_clustering(self):
+    def _complete_clustering(self, kwds):
         """
 
         Run when the clustering finishes.
@@ -622,7 +643,7 @@ class CommonCluster(object):
         if hasattr(self, 'sdata'):
             del self.sdata  #Safe side.
 
-        if isinstance(self, Gtk_UI):
+        if isinstance(self, Gtk_UI) and not (kwds.has_key('use_gtk') and not kwds['use_gtk']):
 
             if hasattr(self, 'startbutton'):
                 self.startbutton.set_sensitive(True)
@@ -659,7 +680,7 @@ class Gtk_UI(CommonCluster):
         self.parser = None
         self.thread = None
 
-        if not display.DISPLAY_ENABLED:
+        if not display.DISPLAY_ENABLED or (kwds.has_key('use_gtk') and not kwds['use_gtk']):
             CommonCluster.__init__(self, *args, **kwds)
 
         else:
