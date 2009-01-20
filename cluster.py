@@ -427,7 +427,7 @@ class SOMCluster(BaseCluster):
 
             for k in xrange(self.num_samples):
 
-                bmu = [0, 0, distance(nodes[0][0], data_matrix[k])] #TODO: More elegant than doing 00k twice? sys.maxint ins't big enough...
+                bmu = [distance(nodes[0][0], data_matrix[k]), 0, 0] #TODO: More elegant than doing 00k twice? sys.maxint ins't big enough...
 
                 #Rather than a one line min([ listcomp ]) here, the added complexity reduces function calls by quite a bit
                 for i in xrange(vdim):
