@@ -144,7 +144,7 @@ class HierarchicalCluster(BaseCluster):
         tree, num_clusters = self.tree, self.num_clusters
 
         cache = {} #Cache of distances between sets of clusters
-        maxint = sys.maxint
+        maxint = sys.maxint #FIXME: Is it possible to be larger than this in hierarchical clustering?
     
         while len(tree) > 1:
             if len(tree) == num_clusters:
@@ -418,7 +418,6 @@ class SOMCluster(BaseCluster):
         node_adjust = numpy.zeros((vdim, hdim, self.vec_len))
         
         e = math.e
-        maxint = sys.maxint
 
         for t in xrange(1, num_epochs):
 
@@ -428,7 +427,7 @@ class SOMCluster(BaseCluster):
 
             for k in xrange(self.num_samples):
 
-                bmu = [maxint]
+                bmu = [0, 0, distance(nodes[0][0], data_matrix[k])] #TODO: More elegant than doing 00k twice? sys.maxint ins't big enough...
 
                 #Rather than a one line min([ listcomp ]) here, the added complexity reduces function calls by quite a bit
                 for i in xrange(vdim):

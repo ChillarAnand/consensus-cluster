@@ -48,6 +48,8 @@ except:
 if display.GTK_ENABLED:
     import gtk, gobject
 
+DEBUG = 0
+
 
 def union(list1, list2):
     """
@@ -245,7 +247,10 @@ class CommonCluster(object):
                 self.run_cluster(i, subsamples, subsample_fraction, norm_var, kwds)
 
         except:
-            pass
+            if DEBUG:
+                raise
+            else:
+                pass
 
         self._complete_clustering(kwds)
 
