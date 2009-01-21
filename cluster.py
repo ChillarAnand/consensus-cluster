@@ -144,7 +144,7 @@ class HierarchicalCluster(BaseCluster):
         tree, num_clusters = self.tree, self.num_clusters
 
         cache = {} #Cache of distances between sets of clusters
-        maxint = sys.maxint #FIXME: Is it possible to be larger than this in hierarchical clustering?
+        maxint = sys.maxint
     
         while len(tree) > 1:
             if len(tree) == num_clusters:
@@ -381,7 +381,7 @@ class SOMCluster(BaseCluster):
     """
 
     def __init__(self, datapoints, data_matrix, num_clusters, distance_metric, distance_matrix=None,
-                 hdim = None, vdim = None, learn_rate = 0.01, num_epochs = 2000, **kwds):
+                 hdim = None, vdim = None, learn_rate = 0.001, num_epochs = 2000, **kwds):
             
         BaseCluster.__init__(self, datapoints, data_matrix, num_clusters, distance_metric, distance_matrix)
 
@@ -418,6 +418,7 @@ class SOMCluster(BaseCluster):
         node_adjust = numpy.zeros((vdim, hdim, self.vec_len))
         
         e = math.e
+        maxint = sys.maxint
 
         for t in xrange(1, num_epochs):
 
@@ -427,7 +428,7 @@ class SOMCluster(BaseCluster):
 
             for k in xrange(self.num_samples):
 
-                bmu = [distance(nodes[0][0], data_matrix[k]), 0, 0] #TODO: More elegant than doing 00k twice? sys.maxint ins't big enough...
+                bmu = [maxint]
 
                 #Rather than a one line min([ listcomp ]) here, the added complexity reduces function calls by quite a bit
                 for i in xrange(vdim):
@@ -437,11 +438,17 @@ class SOMCluster(BaseCluster):
                         if dist < bmu[0]:
                             bmu = [dist, i, j]
                 
-                y = bmu[1]
+                try:
+                    y = bmu[1]
+                except:
+                    #FIXME: WTF???!!!!!
+                    #print "Nodes:\n",nodes,"\nEpoch:",t,"\nData Matrix:\n",data_matrix
+                    raise ValueError, "Distance from nodes to data matrix too large?"
+
                 x = bmu[2]
                 rad_int = int(new_radius)
                 
-                #Again, performance vs code succintness
+                #Again, performance vs code succinctness
                 if y > rad_int:
                     min_i = y - rad_int - 1
                 else:
