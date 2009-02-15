@@ -29,7 +29,7 @@ import warnings
 warnings.simplefilter('ignore', DeprecationWarning)
 
 import numpy, sys, time, os
-import pca, parsers, cluster, display
+import pca, parsers, cluster, display, scripts
 
 from mpi_compat import *
 
@@ -49,104 +49,6 @@ if display.GTK_ENABLED:
     import gtk, gobject
 
 DEBUG = 0
-
-
-def union(list1, list2):
-    """
-    Remove the indices which make up the union between two lists in log n time
-    
-    Returns a tuple, where tuple[0] is the list of indices in list1 which is in common with list2, and tuple[1]
-    is the same list for list2
-
-    """
-
-    swapped = False
-    if len(list1) > len(list2):         #Make list2 the longer one
-        list1, list2 = list2, list1
-        swapped = True
-
-    indices_list1 = numpy.argsort(list1)
-    indices_list2 = numpy.argsort(list2)
-
-    union_indices_list1 = []
-    union_indices_list2 = []
-    
-    breakpoint = 0
-
-    for i in indices_list1:    
-        for j in range(len(indices_list2))[breakpoint:]:    #Ugly, but reduces complexity
-            idx = indices_list2[j]
-
-            if list1[i] == list2[idx]:
-                union_indices_list1.append(i)
-                union_indices_list2.append(idx)
-                breakpoint = j
-                break
-
-    if not swapped:
-        return union_indices_list1, union_indices_list2
-
-    return union_indices_list2, union_indices_list1
-
-def scale_to_set(sdata, filenames):
-    """
-
-    scale_to_set(filename)
-
-        Removes all but those sample_ids you specifiy.
-
-        filenames    - array of filenames, each file containing list of sample ids to use
-
-    Returns: modified sdata object
-
-    """
-
-    defined_clusters = {}
-
-    for filename in filenames:
-        name = os.path.basename(filename)
-        defined_clusters[name] = parsers.get_list_from_file(filename)
-
-    samples_to_keep = sum([ defined_clusters[x] for x in defined_clusters ], [])
-
-    sample_id_list = [ x.sample_id for x in sdata.samples ]
-    
-    sample_indices = union(sample_id_list, samples_to_keep)[0]
-    sdata.samples = [ sdata.samples[x] for x in sample_indices ] #Adjustment
-
-    sample_id_list = [ x.sample_id for x in sdata.samples ] #This is different!
-    
-    for name in defined_clusters: #If samples aren't in the main, ignore them
-        sample_list = defined_clusters[name]
-        def_indices = union(sample_list, sample_id_list)[0]
-        defined_clusters[name] = [ sample_list[x] for x in def_indices ]
-
-    return sdata, defined_clusters
-
-def scale_probes(sdata, filename):
-    """
-
-    scale_probes(sdata, filename)
-        
-        Removes all gene probes except those you specify
-
-        filename    - File containing a list of probes, one on each line
-
-    Returns: modified sdata object
-
-    NOTE: Currently there is no way to call this from common.py!  This will change in the future.
-          For now, stick this in your _preprocess(self) subclass.
-
-    """
-
-    probes_to_keep = union(sdata.gene_names, parsers.get_list_from_file(filename))[0]
-
-    sdata.gene_names = sdata.gene_names.take(tuple(probes_to_keep))
-
-    for i in xrange(len(sdata.samples)):
-        sdata.samples[i].data = sdata.samples[i].data.take(tuple(probes_to_keep))
-
-    return sdata
 
 
 class CommonCluster(object):
@@ -191,7 +93,7 @@ class CommonCluster(object):
     """
     
     def __init__(self, parser, filename, log2=False, sub_medians=False, center=True, scale=False, pca_fraction=0.85, eigenvector_weight=0.25,
-                 kvalues=range(2,7), subsamples=300, subsample_fraction=0.8, norm_var=False, keep_list=None, **kwds):
+                 kvalues=range(2,7), subsamples=300, subsample_fraction=0.8, norm_var=False, keep_list=None, pca_only=False, pca_legend=True, **kwds):
         """
     
         Initialise clustering procedure and tell the user what's going on.
@@ -225,7 +127,7 @@ class CommonCluster(object):
             self.sdata = console.announce_wrap('Parsing data...', parser, filename)
     
             if self.keep_list is not None:
-                self.sdata, self.defined_clusters = console.announce_wrap('Removing samples not found in %s...' % ", ".join(self.keep_list), scale_to_set, self.sdata, self.keep_list)
+                self.sdata, self.defined_clusters = console.announce_wrap('Removing samples not found in %s...' % ", ".join(self.keep_list), scripts.scale_to_set, self.sdata, self.keep_list)
     
             console.announce_wrap('Preprocessing data...', self._preprocess)
     
@@ -233,18 +135,20 @@ class CommonCluster(object):
             if len(dict.fromkeys(idlist)) != len(idlist):
                 console.except_to_console('One or more Sample IDs are not unique!')
     
-            console.announce_wrap('Running PCA...', self.run_pca, log2, sub_medians, center, scale, pca_fraction, eigenvector_weight)
-            console.announce_wrap('Postprocessing data...', self._postprocess)
-    
-            console.write("Using MPI?")
+            console.announce_wrap('Running PCA...', self.run_pca, log2, sub_medians, center, scale, pca_fraction, eigenvector_weight, pca_legend)
+            
+            if not pca_only:
+                console.announce_wrap('Postprocessing data...', self._postprocess)
         
-            if MPI_ENABLED:
-                console.success()
-            else:
-                console.fail()
-    
-            for i in kvalues:
-                self.run_cluster(i, subsamples, subsample_fraction, norm_var, kwds)
+                console.write("Using MPI?")
+            
+                if MPI_ENABLED:
+                    console.success()
+                else:
+                    console.fail()
+        
+                for i in kvalues:
+                    self.run_cluster(i, subsamples, subsample_fraction, norm_var, kwds)
 
         except:
             if DEBUG:
@@ -255,7 +159,7 @@ class CommonCluster(object):
         self._complete_clustering(kwds)
 
     @only_once
-    def makeplot(self, M, V, label):
+    def makeplot(self, M, V, label, pca_legend=True):
         """
     
         Use matplotlib and display.py's Plot function to draw the samples along the first two Principle Components
@@ -298,10 +202,13 @@ class CommonCluster(object):
             #No kept files, just do as you're told
             legend = None
             plots = [N]     
+
+        if not pca_legend:
+            legend = None
     
         display.Plot(plots, legend = legend, fig_label = label)
     
-    def run_pca(self, log2, sub_medians, center, scale, pca_fraction, eigenvector_weight):
+    def run_pca(self, log2, sub_medians, center, scale, pca_fraction, eigenvector_weight, pca_legend=True):
         """
     
         Create a matrix from self.sdata.samples, normalise it, and then run PCA to reduce dimensionality.
@@ -354,16 +261,22 @@ class CommonCluster(object):
     
         console.log("Normalising %sx%s matrix" % (len(self.sdata.samples), len(self.sdata.samples[0].data)))
     
+        avg = numpy.average(M, 0)   #We NEED to center for PCA to work, but the user may not want that.  So we save the value here and add it later.
+
         M = pca.normalise(M, log2=log2, sub_medians=sub_medians, center=center, scale=scale)
     
         #Unrolling pca.select_genes_by_pca...
         V = pca.pca(M, pca_fraction)    #From SVD
         gene_indices = pca.select_genes(V, eigenvector_weight)
+
+        if not center and not scale:
+            M += avg    #De-center if the user doesn't want it
     
         console.log("Found %s principle components in the top %s fraction" % (len(V), pca_fraction))
         console.log("Found %s reliable features occurring with high weight (top %s by absolute value)" % (len(gene_indices), eigenvector_weight))
         
-        self.makeplot(M, V, 'PCA results - All samples')
+        self.makeplot(M, V, 'PCA results - PC2v1 - All samples', pca_legend)
+        self.makeplot(M, V[1:], 'PCA results - PC3v2 - All samples', pca_legend)
     
         #Reduce dimensions
         M = M.take(gene_indices, 1)
