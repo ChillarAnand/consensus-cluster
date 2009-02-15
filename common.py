@@ -48,7 +48,7 @@ except:
 if display.GTK_ENABLED:
     import gtk, gobject
 
-DEBUG = 0
+DEBUG = 1
 
 
 class CommonCluster(object):
@@ -269,14 +269,14 @@ class CommonCluster(object):
         V = pca.pca(M, pca_fraction)    #From SVD
         gene_indices = pca.select_genes(V, eigenvector_weight)
 
-        if not center and not scale:
-            M += avg    #De-center if the user doesn't want it
-    
         console.log("Found %s principle components in the top %s fraction" % (len(V), pca_fraction))
         console.log("Found %s reliable features occurring with high weight (top %s by absolute value)" % (len(gene_indices), eigenvector_weight))
         
         self.makeplot(M, V, 'PCA results - PC2v1 - All samples', pca_legend)
         self.makeplot(M, V[1:], 'PCA results - PC3v2 - All samples', pca_legend)
+        
+        if not center and not scale:
+            M += avg    #De-center if the user doesn't want it
     
         #Reduce dimensions
         M = M.take(gene_indices, 1)
