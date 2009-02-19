@@ -263,7 +263,7 @@ class CommonCluster(object):
     
         avg = numpy.average(M, 0)   #We NEED to center for PCA to work, but the user may not want that.  So we save the value here and add it later.
 
-        M = pca.normalise(M, log2=log2, sub_medians=sub_medians, center=True, scale=scale)
+        M = pca.normalise(M, log2=log2, sub_medians=False, center=True, scale=scale)
     
         #Unrolling pca.select_genes_by_pca...
         V = pca.pca(M, pca_fraction)    #From SVD
@@ -277,6 +277,9 @@ class CommonCluster(object):
         
         if not center and not scale:
             M += avg    #De-center if the user doesn't want it
+            
+        if sub_medians:
+            M = pca.normalise(M, log2=False, sub_medians=True, center=False, scale=False)
     
         #Reduce dimensions
         M = M.take(gene_indices, 1)

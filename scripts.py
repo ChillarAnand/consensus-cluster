@@ -104,13 +104,13 @@ def crop_sample_list(filen, remfile):
     #filen: sample list to cropped
     #remfile: samples you'd like to remove from filen
 
-    f = open(remfile, 'r')
-    rem = [x.strip() for x in f]
-    f.close()
+    rem = parsers.get_list_from_file(remfile)
+    sams = numpy.array(parsers.get_list_from_file(filen)) #Take is amazing.
 
-    f = open(filen, 'r')
-    sams = [x.strip() for x in f if x.strip() not in rem]
-    f.close()
+    ind_to_remove = numpy.array(union(sams, rem)[0])
+    ind_to_keep = numpy.lib.arraysetops.setdiff1d(numpy.arange(len(sams)), ind_to_remove)
+
+    sams = sams.take(tuple(ind_to_keep))
 
     f = open(filen, 'w')
     for sam in sams:
@@ -191,3 +191,88 @@ def remove_pc(sdata, num=1):
         sdata.samples[i].data = M[i]
 
     return sdata
+
+def write_table(ndict, filename):
+    """Write a tab delimited flat file, one key per line"""
+
+    ls = ndict.keys()
+    ls.sort()
+
+    f = open(filename, 'w')
+    
+    for key in ls:
+        f.write("\t".join([key, ndict[key]]))
+        f.write("\n")
+
+    f.close()
+
+def write_ratio(s, clust1, clust2, filename, threshold=1.):
+    """Write SNR ratios given sdata obj, clust1 filename, clust2 filename, file to write to, threshold for SNR"""
+
+    M = numpy.array([x.data for x in s.samples])
+
+    f = open(filename, 'w')
+    
+    c1ind = get_indices(s, clust1)
+    c2ind = get_indices(s, clust2)
+    
+    ratios = pca.snr(M, c1ind, c2ind, threshold)
+    
+    f.write("%s vs %s:\n" % (clust1, clust2))
+    f.write("--------------------\n")
+    f.write("Gene ID\t\t%s Avg\t%s Avg\tSNR Ratio\n" % (clust1, clust2))
+    
+    for result in ratios:
+        f.write("\n%10s\t\t%f\t\t%f\t\t%f" % (s.gene_names[result[1]], result[2], result[3], result[0]))
+
+    f.close()
+                        
+def write_classifier(s, filename, clust1, clust2=None, threshold=None):
+    """
+    Writes a bayesian binary classifier
+    
+    See pca.binary_classifier for details
+    
+    s - SampleData obj
+    filename - What to write the classification information to
+    clust1 - a file with one sample name on each line which composes the cluster you're trying to define
+    clust2 - an optional second cluster.  Otherwise it's every other sample.
+    threshold - If you want to classify using only genes over a certain SNR threshold, use this.  None uses all.
+
+    """
+
+    M = numpy.array([x.data for x in s.samples])
+
+    f = open(filename, 'w')
+    
+    c1ind = get_indices(s, clust1)
+    
+    if clust2 is not None:
+        c2ind = get_indices(s, clust2)
+    else:
+        c2ind = numpy.lib.arraysetops.setdiff1d(numpy.arange(len(s.samples)), numpy.array(c1ind))
+
+    rlist, w0 = pca.binary_classifier(M, c1ind, c2ind, threshold)
+
+    f.write("%s vs %s:\n" % (clust1, clust2))
+    f.write("--------------------\n\n")
+
+    #Returns (a, b), where a is w in (wi, i) pairs and b is w0
+    f.write("w0 is %s\n" % w0)
+    f.write("\nGene ID\t\tMultiplier\n\n")
+
+    rlist.sort() #FIXME: abs?
+
+    for result in rlist:
+        f.write("%10s\t%f\n" % (s.gene_names[result[1]], result[0]))
+
+    f.close()
+
+def get_indices(s, filename):
+    """
+    Return the indices of the samples in filename in the sdata object
+    
+    """
+
+    sams = parsers.get_list_from_file(filename)
+    return union([ x.sample_id for x in s.samples ], sams)[0]
