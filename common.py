@@ -561,9 +561,6 @@ class CommonCluster(object):
 
         """
 
-        if hasattr(self, 'sdata'):
-            del self.sdata  #Safe side.
-
         if isinstance(self, Gtk_UI) and not (kwds.has_key('use_gtk') and not kwds['use_gtk']):
 
             if hasattr(self, 'startbutton'):

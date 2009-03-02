@@ -49,7 +49,7 @@ def scale_to_set(sdata, filenames):
 
         filenames    - array of filenames, each file containing list of sample ids to use
 
-    Returns: modified sdata object
+    Returns: modified sdata object, dict of cluster->indices
 
     """
 
