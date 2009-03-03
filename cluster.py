@@ -395,7 +395,9 @@ class SOMCluster(BaseCluster):
             raise ValueError, 'Passed node array dimensions less than 2!'
 
         nodes = self._gen_initial_nodes(data_matrix, hdim, vdim)
-        nodes = self._train_data(data_matrix, distance_metric, nodes, hdim, vdim, learn_rate, num_epochs, (hdim + vdim) / 3.)
+        chessdists = self._memo_chessboard_dists(hdim, vdim)
+
+        nodes = self._train_data(data_matrix, distance_metric, nodes, chessdists, hdim, vdim, learn_rate, num_epochs, (hdim + vdim) / 3.)
 
         self._assign_clusters(nodes, data_matrix, distance_metric, hdim, vdim)
 
@@ -410,7 +412,20 @@ class SOMCluster(BaseCluster):
 
         return numpy.array([[[ ran() * (maxs[i] - mins[i]) + mins[i] for i in xrange(vec_len) ] for j in xrange(hdim) ] for k in xrange(vdim) ])
 
-    def _train_data(self, data_matrix, distance, nodes, hdim, vdim, lr, num_epochs, radius):
+    def _memo_chessboard_dists(self, hdim, vdim):
+
+        M = {} #A dict is several times faster in random 4D access than a numpy array, though it takes more memory
+
+        #FIXME: This is symmetric, and this function does twice the work it needs to
+        for i in xrange(vdim):
+            for j in xrange(hdim):
+                for k in xrange(vdim):
+                    for l in xrange(hdim):
+                        M[(i,j,k,l)] = max(abs(i - k), abs(j - l))
+
+        return M
+
+    def _train_data(self, data_matrix, distance, nodes, chessdists, hdim, vdim, lr, num_epochs, radius):
         """Use the sample set to train the SOM"""
 
         t_const = num_epochs / math.log(radius)
@@ -441,9 +456,8 @@ class SOMCluster(BaseCluster):
                 try:
                     y = bmu[1]
                 except:
-                    #FIXME: WTF???!!!!!
-                    #print "Nodes:\n",nodes,"\nEpoch:",t,"\nData Matrix:\n",data_matrix
-                    raise ValueError, "Distance from nodes to data matrix too large?"
+                    #FIXME: We need a command line way to lower learn rate, or GUI option
+                    raise ValueError, "Distance from nodes to data matrix too large? Try lowering learn rate."
 
                 x = bmu[2]
                 rad_int = int(new_radius)
@@ -467,31 +481,14 @@ class SOMCluster(BaseCluster):
                 if max_j > hdim:
                     max_j = hdim
             
-                chessboard_matches = []
-
-                #Avert your eyes here...seriously.  My one-liner for this loop is at least 20x slower, but doesn't look scary like this does
                 for i in xrange(min_i, max_i):
                     for j in xrange(min_j, max_j):
-                        ydist = i - y
-                        xdist = j - x
+                        dist = chessdists[(y,x,i,j)]
 
-                        #Abs
-                        if ydist < 0:
-                            ydist = -ydist
-                        if xdist < 0:
-                            xdist = -xdist
+                        inf = e**(-dist**2 / r)
 
-                        #Max
-                        if ydist > xdist:
-                            chessboard_matches.append( (i, j, ydist) )
-                        else:
-                            chessboard_matches.append( (i, j, xdist) )
-                        
-                for node in chessboard_matches:
-                    inf = e**(-node[2]**2 / r)
-
-                    #W(t+1) = W(t) + O(t)L(t)(V(t) - W(t))
-                    node_adjust[node[0]][node[1]] += inf * new_learn * (data_matrix[k] - nodes[node[0]][node[1]])
+                        #W(t+1) = W(t) + O(t)L(t)(V(t) - W(t))
+                        node_adjust[i][j] += inf * new_learn * (data_matrix[k] - nodes[i][j])
 
             nodes += node_adjust
             node_adjust.fill(0)
