@@ -1,6 +1,6 @@
 #Random utilities
 
-import parsers, numpy, os, log_analyse, pca
+import parsers, numpy, os, log_analyse, pca, display
 
 
 def union(list1, list2):
@@ -91,12 +91,10 @@ def scale_probes(sdata, filename):
 
     """
 
-    probes_to_keep = union(sdata.gene_names, parsers.get_list_from_file(filename))[0]
+    probes_to_keep = tuple(union(sdata.gene_names, parsers.get_list_from_file(filename))[0])
 
-    sdata.gene_names = sdata.gene_names.take(tuple(probes_to_keep))
-
-    for i in xrange(len(sdata.samples)):
-        sdata.samples[i].data = sdata.samples[i].data.take(tuple(probes_to_keep))
+    sdata.M = sdata.M.take(probes_to_keep, 1)
+    sdata.gene_names = sdata.gene_names.take(probes_to_keep)
 
     return sdata
 
@@ -151,7 +149,7 @@ def write_normal(sdata, filename):
 
     #Data
     for i in xrange(len(sdata.gene_names)):
-        f.write("\t".join([sdata.gene_names[i]] + [ str(x.data[i]) for x in sdata.samples ]))
+        f.write("\t".join([sdata.gene_names[i]] + [ str(sdata.M[j][i]) for j in xrange(len(sdata.samples)) ]))
         f.write("\n")
 
     f.close()
@@ -176,8 +174,11 @@ def make_def_clusters_from_log(logfile):
 def remove_pc(sdata, num=1):
     """Remove the first num principle components from the data"""
 
-    M = numpy.array([x.data for x in sdata.samples]) #Sample in rows, genes in columns
-    M = pca.normalise(M, log2=False, center=True, scale=False, sub_medians=False)
+    M = sdata.M
+    
+    avg = numpy.average(M, 0)
+
+    M -= avg
 
     u, s, V = numpy.linalg.svd(M, 0)        #Decompose
     S = numpy.identity(s.shape[0]) * s
@@ -185,10 +186,7 @@ def remove_pc(sdata, num=1):
     for i in xrange(num):
         S[i][i] = 0.        #Sets the offending eigenvalue to 0
 
-    M = numpy.dot(numpy.dot(u, S), V)       #Recompose
-
-    for i in xrange(len(sdata.samples)):
-        sdata.samples[i].data = M[i]
+    sdata.M = numpy.dot(numpy.dot(u, S), V) + avg       #Recompose
 
     return sdata
 
@@ -206,24 +204,25 @@ def write_table(ndict, filename):
 
     f.close()
 
-def write_ratio(s, clust1, clust2, filename, threshold=1.):
-    """Write SNR ratios given sdata obj, clust1 filename, clust2 filename, file to write to, threshold for SNR"""
+def write_ratio(s, clust1, clust2, filename, snr_threshold=0.5, pval_threshold=0.001, ttest=False):
+    """Write SNR ratios given sdata obj, clust1 filename, clust2 filename, file to write to, threshold for SNR, threshold for pval, do ttest or not"""
 
-    M = numpy.array([x.data for x in s.samples])
+    M = s.M
 
     f = open(filename, 'w')
     
     c1ind = get_indices(s, clust1)
     c2ind = get_indices(s, clust2)
     
-    ratios = pca.snr(M, c1ind, c2ind, threshold)
+    ratios = pca.snr(M, c1ind, c2ind, snr_threshold, ttest)
     
     f.write("%s vs %s:\n" % (clust1, clust2))
     f.write("--------------------\n")
-    f.write("Gene ID\t\t%s Avg\t%s Avg\tSNR Ratio\n" % (clust1, clust2))
+    f.write("Gene ID\t\t%s Avg\t%s Avg\tSNR Ratio\tp-value\n" % (clust1, clust2))
     
     for result in ratios:
-        f.write("\n%10s\t\t%f\t\t%f\t\t%f" % (s.gene_names[result[1]], result[2], result[3], result[0]))
+        if not ttest or result[4] <= pval_threshold:
+            f.write("\n%10s\t\t%f\t\t%f\t\t%f\t\t%s" % (s.gene_names[result[1]], result[2], result[3], result[0], result[4]))
 
     f.close()
                         
@@ -241,7 +240,7 @@ def write_classifier(s, filename, clust1, clust2=None, threshold=None):
 
     """
 
-    M = numpy.array([x.data for x in s.samples])
+    M = s.M
 
     f = open(filename, 'w')
     
@@ -276,3 +275,42 @@ def get_indices(s, filename):
 
     sams = parsers.get_list_from_file(filename)
     return union([ x.sample_id for x in s.samples ], sams)[0]
+
+def km(timeconv, eventconv, *clusts):
+    """
+    Draw the kaplan-meier curves for a number of clusters
+    
+    timeconv - file of tab-delim table of sample id -> survival time conversions
+    eventconv - file of tab-delim table of sample id -> event conversions (ie, 1 for yes, 0 for no, anything else for NA)
+    clusts - cluster filenames
+    
+    """
+    tc = parsers.read_table(timeconv)
+    ec = parsers.read_table(eventconv)
+
+    labels = []
+    times = []
+    events = []
+
+    for clust in clusts:
+
+        cl = parsers.get_list_from_file(clust)
+       
+        ts = []
+        ev = []
+
+        for sam in cl:
+            try:
+                time = float(tc[sam])
+                event = int(ec[sam])
+
+                ts.append(time)
+                ev.append(event)
+            except:
+                pass
+
+        labels.append(clust)
+        times.append(ts)
+        events.append(ev)
+
+    display.km(times, events, labels)

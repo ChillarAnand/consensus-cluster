@@ -29,7 +29,7 @@ import math, numpy, sys, random
 import distance, treetype, display
 
 from mpi_compat import *
-
+from itertools import combinations as comb
 
 class BaseCluster(object):
     """
@@ -47,8 +47,6 @@ class BaseCluster(object):
             num_samples     - Number of samples
             vec_len         - Length of each sample data vector
             data_matrix     - "Current" sample data.  May be subsampled, etc
-                              Treat sdata.samples[x].data as the "True" data,
-                              which should not be used in any algorithm.
 
     """
 
@@ -63,13 +61,10 @@ class BaseCluster(object):
 
         distance_matrix = numpy.zeros((num_samples, num_samples), dtype = float)
 
-        for i in xrange(num_samples):
-            for j in xrange(1, num_samples - i):
-                k, m = i, i+j
+        for i, j in comb(xrange(num_samples), 2):
+            distance_matrix[i][j] = distance(data_matrix[i], data_matrix[j])
 
-                distance_matrix[k][m] = distance(data_matrix[k], data_matrix[m])
-
-        return distance_matrix + distance_matrix.transpose()
+        return distance_matrix + distance_matrix.T
 
 
 class HierarchicalCluster(BaseCluster):
@@ -153,22 +148,18 @@ class HierarchicalCluster(BaseCluster):
             clust_len = len(tree)
             best = [maxint]
             
-            for i in xrange(clust_len):
-                for j in xrange(1, clust_len - i):
+            for i, j in comb(xrange(clust_len), 2):
+                fst_clust, snd_clust = tuple(tree[i].sequence), tuple(tree[j].sequence)
+                key = (fst_clust, snd_clust)
 
-                    k, m = i, i+j
+                if key not in cache:
+                    dist = linkage(distance_matrix.take(fst_clust, 0).take(snd_clust, 1))
+                    cache[key] = dist
+                else:
+                    dist = cache[key]
 
-                    fst_clust, snd_clust = tuple(tree[k].sequence), tuple(tree[m].sequence)
-                    key = (fst_clust, snd_clust)
-    
-                    if key not in cache:
-                        dist = linkage(distance_matrix.take(fst_clust, 0).take(snd_clust, 1))
-                        cache[key] = dist
-                    else:
-                        dist = cache[key]
-    
-                    if dist < best[0]:
-                        best = [dist, k, m]
+                if dist < best[0]:
+                    best = [dist, i, j]
 
             tree.append(treetype.Tree(left=tree[best[1]], right=tree[best[2]], dist=best[0])) #Make a stack
 
@@ -244,15 +235,12 @@ class KMeansCluster(BaseCluster):
 
             #Move centroids
             for i in xrange(num_clusters):
-                if cluster_ids.has_key(i):
-                    cluster_data_matrix = data_matrix.take(tuple(cluster_ids[i]), 0)
+                if i in cluster_ids:
+                    cluster_data_means = data_matrix.take(tuple(cluster_ids[i]), 0).mean(0)
 
-                    for j in xrange(vec_len):
-                        val = cluster_data_matrix[:,j].mean()
-
-                        if not centroids[i][j] == val:
-                            centroids[i][j] = val
-                            moved_flag = 1
+                    if not (centroids[i] == cluster_data_means).all():
+                        centroids[i] = cluster_data_means
+                        moved_flag = 1
 
         #Assign cluster ids to datapoints
         for cluster_id in cluster_ids:
@@ -262,12 +250,14 @@ class KMeansCluster(BaseCluster):
     def _gen_initial_centroids(self, data_matrix):
         """Generate initial cluster centroids"""
 
-        ran = random.random
+        ran = numpy.random.random
 
         mins = data_matrix.min(0) #Column min
         maxs = data_matrix.max(0) #Column max
+        
+        data_range = maxs - mins
 
-        return numpy.array([ [ ran() * (maxs[i] - mins[i]) + mins[i] for i in xrange(self.vec_len) ] for j in xrange(self.num_clusters) ], dtype=float)
+        return numpy.array([ ran(self.vec_len) * data_range + mins for i in xrange(self.num_clusters) ])
 
 
 class PAMCluster(BaseCluster):
@@ -375,13 +365,13 @@ class SOMCluster(BaseCluster):
 
         WARNING:
 
-            This method can, and probably will, produce more than K clusters from time to time.  This is intentional, and you shouldn't depend
+            This method can, and probably will, produce more or fewer than K clusters from time to time.  This is intentional, and you shouldn't depend
             on exactly K clusters, anyway.
 
     """
 
     def __init__(self, datapoints, data_matrix, num_clusters, distance_metric, distance_matrix=None,
-                 hdim = None, vdim = None, learn_rate = 0.001, num_epochs = 2000, **kwds):
+                 hdim = None, vdim = None, learn_rate = 0.001, num_epochs = 1000, **kwds):
             
         BaseCluster.__init__(self, datapoints, data_matrix, num_clusters, distance_metric, distance_matrix)
 
@@ -404,24 +394,29 @@ class SOMCluster(BaseCluster):
     def _gen_initial_nodes(self, data_matrix, hdim, vdim):
         """Randomly generate the initial node set"""
 
+        ran = numpy.random.random
+
         mins = data_matrix.min(0) #Column min
         maxs = data_matrix.max(0) #Column max
+        
+        data_range = maxs - mins
 
-        ran = random.random
-        vec_len = self.vec_len
-
-        return numpy.array([[[ ran() * (maxs[i] - mins[i]) + mins[i] for i in xrange(vec_len) ] for j in xrange(hdim) ] for k in xrange(vdim) ])
+        return numpy.array([[ ran(self.vec_len) * data_range + mins for i in xrange(hdim) ] for j in xrange(vdim) ])
 
     def _memo_chessboard_dists(self, hdim, vdim):
 
         M = {} #A dict is several times faster in random 4D access than a numpy array, though it takes more memory
 
-        #FIXME: This is symmetric, and this function does twice the work it needs to
-        for i in xrange(vdim):
-            for j in xrange(hdim):
-                for k in xrange(vdim):
-                    for l in xrange(hdim):
-                        M[(i,j,k,l)] = max(abs(i - k), abs(j - l))
+        #FIXME: This function still does too much work.  Because of the abs function klmn = lkmn, etc.
+        iter = [ (i, j) for i in xrange(vdim) for j in xrange(hdim) ]
+
+        for (k,l), (m,n) in comb(iter, 2):
+            val = max(abs(k - m), abs(l - n))
+            M[(k,l,m,n)] = val
+            M[(m,n,k,l)] = val
+
+        for i, j in iter:
+            M[(i,j,i,j)] = 0
 
         return M
 
@@ -565,7 +560,7 @@ class ConsensusCluster(object):
         self.__dict__ = { 'reset_datapoints': False, 'datapoints': sdata.samples, 'num_clusters': num_clusters, 'distance_metric': distance_metric,
                           'sim_matrix_clustcount': mat.copy(), 'sim_matrix_totalcount': mat.copy(), 'consensus_matrix': mat.copy(), 'tree': None,
                           'norm_var': norm_var, 'clustering_algs': clustering_algs, 'linkages': linkages, 'final_alg': final_alg, 'console': console,
-                          'matrix_thresh': matrix_thresh }
+                          'matrix_thresh': matrix_thresh, 'M': sdata.M }
                          
         if console is None:
             self.console = display.ConsoleDisplay(log=False)
@@ -573,7 +568,7 @@ class ConsensusCluster(object):
         progress = self.console.progress
 
         if subsample_fraction is not None:
-            self.gene_fraction = int(len(self.datapoints[0].data) * subsample_fraction) #Number of genes to take in a subsample
+            self.gene_fraction = int(len(sdata.M[0]) * subsample_fraction) #Number of genes to take in a subsample
             self.sample_fraction = int(len(self.datapoints) * subsample_fraction)       #Number of samples to take in a subsample
         else:
             self.sample_fraction = None #No subsampling will be done
@@ -622,7 +617,7 @@ class ConsensusCluster(object):
         """
 
         sample = random.sample
-        dataset = list(self.datapoints)
+        dataset_ind = range(len(self.datapoints))
 
         if self.sample_fraction is None:
             a = 1
@@ -630,11 +625,14 @@ class ConsensusCluster(object):
             a = random.choice([1,2,3,4])
         
         if a == 2 or a == 4:
-            dataset = sample(dataset, self.sample_fraction)
+            dataset_ind = sample(dataset_ind, self.sample_fraction)
         else:
-            dataset = sample(dataset, len(dataset))
+            dataset_ind = sample(dataset_ind, len(dataset_ind))
 
-        M = numpy.array([ x.data for x in dataset ])
+        M = self.M.copy()
+
+        dataset = [ self.datapoints[x] for x in dataset_ind ]
+        M = M.take(tuple(dataset_ind), 0)
 
         if a == 3 or a == 4:
             sample_gene_indices = tuple(sample(xrange(len(M[0])), self.gene_fraction))
@@ -642,7 +640,7 @@ class ConsensusCluster(object):
             M = M.take(sample_gene_indices, 1)
         
         if self.norm_var:
-            M = M / numpy.sqrt(M.var(0))
+            M = M / M.var(0)
     
         return dataset, M
 
@@ -657,7 +655,7 @@ class ConsensusCluster(object):
         dataset, data_matrix = self._gen_dataset()
 
         for alg in self.clustering_algs:
-            if alg is HierarchicalCluster:      #Got a better way?
+            if alg is HierarchicalCluster:
                 for linkage in self.linkages:
                     run(alg, dataset, data_matrix, linkage)
             else:
@@ -666,21 +664,19 @@ class ConsensusCluster(object):
     def upd_similarity_matrix(self):
         """Generate a similarity matrix from each new clustering algorithm results"""
 
-        num_samples = len(self.datapoints)
         datapoints = self.datapoints
+        num_samples = len(datapoints)
         
         clustcount, totalcount = self.sim_matrix_clustcount, self.sim_matrix_totalcount
 
-        for i in xrange(num_samples):
-            for j in xrange(1, num_samples - i):
-                k, m = i, i+j
-                k_id, m_id = datapoints[k].cluster_id, datapoints[m].cluster_id
+        for i, j in comb(xrange(num_samples), 2):
+            i_id, j_id = datapoints[i].cluster_id, datapoints[j].cluster_id
 
-                if not (k_id is None or m_id is None):
-                    if k_id == m_id:
-                        clustcount[k][m] += 1
-                    
-                    totalcount[k][m] += 1
+            if not (i_id is None or j_id is None):
+                if i_id == j_id:
+                    clustcount[i][j] += 1
+                
+                totalcount[i][j] += 1
 
     @only_once
     def gen_consensus_matrix(self, clustcount_matrices, totalcount_matrices):
@@ -694,23 +690,20 @@ class ConsensusCluster(object):
 
         thresh = self.matrix_thresh #Values may not be lower than this before being set to 0
 
-        for i in xrange(num_samples):
-            for j in xrange(1, num_samples - i):
-                k, m = i, i+j
+        for i, j in comb(xrange(num_samples), 2):
+            if final_matrix_totalcount[i][j]:
+                consensus_matrix[i][j] = final_matrix_clustcount[i][j] / final_matrix_totalcount[i][j]
 
-                if final_matrix_totalcount[k][m]:
-                    consensus_matrix[k][m] = final_matrix_clustcount[k][m] / final_matrix_totalcount[k][m]
+                if consensus_matrix[i][j] < thresh:
+                    consensus_matrix[i][j] = 0.0
 
-                    if consensus_matrix[k][m] < thresh:
-                        consensus_matrix[k][m] = 0.0
-
-        return consensus_matrix + consensus_matrix.transpose()
+        return consensus_matrix + consensus_matrix.T
 
     @only_once
     def hcluster_consensus(self):
         """Cluster the data using the consensus matrix as a distance metric"""
 
-        data_matrix = numpy.array([ x.data for x in self.datapoints ])
+        data_matrix = self.M.copy()
 
         if self.final_alg == 'Hierarchical':
             self.tree = HierarchicalCluster(self.datapoints, data_matrix, self.num_clusters, 
@@ -807,7 +800,7 @@ class ConsensusCluster(object):
             best_order = tuple(best_order)
 
         #Order both rows and columns using optimal order
-        self.consensus_matrix = self.consensus_matrix.take(best_order,1).transpose().take(best_order,1)
+        self.consensus_matrix = self.consensus_matrix.take(best_order,1).T.take(best_order,1)
 
     def _reset_clusters(self):
         """Ensure the similarity matrix makes sense"""

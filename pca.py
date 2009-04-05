@@ -27,26 +27,38 @@ along with ConsensusCluster.  If not, see <http://www.gnu.org/licenses/>.
 
 import numpy
 
-def select_genes_by_pca(M, pca_fraction=0.85, eigenvector_weight=0.15):
+try:
+    import scipy.stats as st
+    PVAL = 1
+except:
+    PVAL = 0
+
+def get_pca_genes(M, pca_fraction=0.85, eigenvector_weight=0.15):
     """
-    Expects an array with samples on the rows and genes on the columns
+    Convenience function.  Expects a matrix with samples on the rows and genes on the columns
 
     pca_fraction        - Fraction of eigenvalues which explain pca_fraction of the variance to accept
     eigenvector_weight  - The top eigenvector_weight (by absolute value) fraction of those genes which occur with high weights
                           in those eigenvectors which correspond to the eigenvalues explained by pca_fraction
     
-    Returns a tuple of the indices of those genes which comprise the top weight% in each eigenvector
+    Returns a tuple: (pca_fraction eigenvectors, eigenvector_weight gene indices)
 
     """
 
-    V = pca(M, pca_fraction)
+    V = pca(M, pca_fraction)    #From SVD
+    gene_indices = select_genes(V, eigenvector_weight)
 
-    return select_genes(V, eigenvector_weight)
+    return V, gene_indices
 
-def pca(M, frac):
+def pca(M, frac = 1.):
     """Takes a matrix M and returns those eigenvectors which explain frac of the variance"""
+    
+    avg = numpy.average(M, 0)
+    M -= avg    #PCA requires a centered matrix
 
     u, s, v = numpy.linalg.svd(M, 0) #Will run out of memory from U otherwise
+    
+    M += avg    #M is a reference...shouldn't touch user's toys
     
     variances = s**2/M.shape[1]
     total_variances = numpy.sum(variances, 0)
@@ -128,21 +140,6 @@ def scale_matrix(M):
 
     return M
 
-def get_median(lst, n):
-    """Gets the median of a list or array"""
-    
-    if isinstance(lst, numpy.ndarray):
-        c = lst.copy()
-    else:
-        c = lst[:]
-
-    c.sort()
-
-    if n & 1:
-        return c[n // 2]
-
-    return (c[n // 2] + c[n // 2 - 1]) / 2.
-
 def log2_transform(M):
     """Take the log2 of each value in M"""
 
@@ -151,13 +148,13 @@ def log2_transform(M):
 def subtract_medians(M):
     """Subtract each value in M by the median of medians"""
 
-    medians = []
-
-    for sample_row in M:
-        medians.append(get_median(sample_row, len(sample_row)))
-
-    return (M - get_median(medians, len(medians)))
+    return M - numpy.median(M)
     
+def subtract_feature_medians(M):
+    """Subtract each column in M by the median over all rows"""
+
+    return M - numpy.median(M, 0)
+
 def get_columns(M, list1, list2):
     """
 
@@ -183,7 +180,7 @@ def get_columns(M, list1, list2):
 
     return cols
 
-def snr(M, list1, list2, threshold = None):
+def snr(M, list1, list2, threshold = None, significance = False):
     """
 
     Performs a signal-to-noise ratio test on M, assuming samples are in rows and genes are in columns
@@ -195,6 +192,9 @@ def snr(M, list1, list2, threshold = None):
     Returns a reverse-ordered list of (ratio, index, mean1, mean2) pairs, where index is the column index of the gene,
     and mean1 and mean2 correspond to the mean for that particular gene in list1 and list2, respectively
 
+    If signifance is true (and scipy is installed) a pvalue will be assigned. Be ware this increases processing
+    time significantly (ha).
+
     """
 
     ratios = []
@@ -205,7 +205,12 @@ def snr(M, list1, list2, threshold = None):
         col1, col2 = cols[i][0], cols[i][1]
         mean1, mean2 = col1.mean(), col2.mean()
 
-        ratios.append( (abs((mean1 - mean2) / (col1.std() + col2.std())), i, mean1, mean2) )
+        if PVAL and significance:
+            pval = st.kruskal(col1, col2)[1]
+        else:
+            pval = ''
+
+        ratios.append( (abs((mean1 - mean2) / (col1.std() + col2.std())), i, mean1, mean2, pval) )
 
     ratios.sort(reverse=True)
 

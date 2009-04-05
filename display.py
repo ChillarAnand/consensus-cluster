@@ -25,8 +25,9 @@ along with ConsensusCluster.  If not, see <http://www.gnu.org/licenses/>.
 
 """
 
-import logging, sys, os
+import logging, sys, os, numpy
 
+from itertools import cycle
 from mpi_compat import *
 
 try:
@@ -344,10 +345,16 @@ class Hmap(object):
                 else:
                     colour = (int(matrix[row][col] * red_lightness),0,0)
 
-                draw.polygon([(col * self.bsize, row * self.bsize),
-                              (self.bsize + (col * self.bsize), row * self.bsize),
-                              (self.bsize + (col * self.bsize), self.bsize + (row * self.bsize)),
-                              (col * self.bsize, self.bsize + (row * self.bsize))], outline='black', fill=colour)
+                col_size = col * self.bsize
+                row_size = row * self.bsize
+
+                bcol_size = self.bsize + col_size
+                brow_size = self.bsize + row_size
+
+                draw.polygon([(col_size, row_size),
+                              (bcol_size, row_size),
+                              (bcol_size, brow_size),
+                              (col_size, brow_size)], outline='black', fill=colour)
             
         return im
     
@@ -443,7 +450,7 @@ class Clustmap(Hmap):
         
         self.space = tree_space
         
-        colours = ['Blue', 'green', 'red', 'cyan', 'magenta', 'brown', 'orange']
+        colours = ['blue', 'green', 'red', 'cyan', 'magenta', 'brown', 'orange']
         self.colour_map = self._init_colours(colours, [ x.cluster_id for x in clust_data.datapoints ])
         
         if labels is None:
@@ -492,20 +499,13 @@ class Clustmap(Hmap):
             self.im = self.im.rotate(90)
 
     def _init_colours(self, colours, id_lst):
-        """Silly generator which assigns colours to a list of cluster_ids"""
+        """Assigns colours to a list of cluster_ids"""
 
-        def next_i():
-            i = 0
-            while 1:
-                yield colours[i]
-                
-                i += 1
-                if i >= len(colours):
-                    i = 0
-
+        next_colour = cycle(colours)
+        
         cluster_ids = dict.fromkeys(id_lst).keys()    
 
-        col_map = dict(zip(cluster_ids, next_i()))
+        col_map = dict(zip(cluster_ids, next_colour))
         col_map[None] = 'black'
 
         return col_map
@@ -611,7 +611,7 @@ class Plot(object):
 
         if MATPLOTLIB_ENABLED:
     
-            self.colours = ['bo', 'go', 'ro', 'co', 'mo', 'ko', 'yo', 'bs', 'gs', 'rs', 'cs', 'ms', 'ks', 'ys', 'b^', 'g^', 'r^', 'c^', 'm^', 'k^', 'y^'] 
+            self.colours = cycle(['bo', 'go', 'ro', 'co', 'mo', 'ko', 'yo', 'bs', 'gs', 'rs', 'cs', 'ms', 'ks', 'ys', 'b^', 'g^', 'r^', 'c^', 'm^', 'k^', 'y^'])
 
             self.legend = legend
 
@@ -627,27 +627,88 @@ class Plot(object):
         fig = Figure()
         ax = fig.add_subplot(111)
 
-        colour_counter = 0
-    
         for i in xrange(len(plots)):
 
             if plots[i].shape[0] != 2:
                 raise ValueError, "Attempting to plot matrix with row count other than 2"
             
             if self.legend is not None:
-                ax.plot(plots[i][0], plots[i][1], self.colours[colour_counter], label=self.legend[i])
+                ax.plot(plots[i][0], plots[i][1], self.colours.next(), label=self.legend[i])
             else:
-                ax.plot(plots[i][0], plots[i][1], self.colours[colour_counter])
+                ax.plot(plots[i][0], plots[i][1], self.colours.next())
 
-            colour_counter += 1
-            if colour_counter == len(self.colours):
-                colour_counter = 0
-            
         if self.legend is not None:
             ax.legend(loc='best')
 
         canvas = FigureCanvas(fig)
         canvas.figure.savefig(new_filename(fig_label, 'figure', '.png'))
+
+
+def km(times, events, labels, fig_label = None):
+    """
+
+    Plot the kaplan-meier curves
+
+    times - list of arrays of survival times (or a matrix)
+    censors - a list of event arrays, 1 for an event and 0 for censor (or a matrix)
+    labels - a list of labels (for the lists)
+
+    These should all be the same length
+
+    """
+
+    numcurves = len(times)
+
+    if not numcurves == len(events) == len(labels):
+        raise ValueError, 'Lists are not all the same length!'
+        
+    colours = cycle(['b', 'g', 'r', 'c', 'm', 'k', 'y'])
+
+    fig = Figure()
+    ax = fig.add_subplot(111)
+
+    for i in xrange(numcurves):
+        ar = numpy.array(times[i])
+        sorting = tuple(numpy.argsort(ar))
+
+        ar = ar.take(sorting)
+        ev = numpy.array(events[i]).take(sorting)
+        label = labels[i]
+
+        points = numpy.array([0] + list(numpy.unique(ar))) #X-axis timepoints
+        nonsurvival = numpy.zeros(len(points)) #float
+        censors = nonsurvival.copy()
+
+        bin = 1 #Leave time 0 alone, when everyone is alive
+        cur = ar[0]
+
+        for j in xrange(len(ar)):
+            if ar[j] != cur: #Increment current timepoint, bin
+                cur = ar[j]
+                bin += 1
+
+            if ev[j]:
+                nonsurvival[bin] += 1 #Count events at each timepoint
+            else:
+                censors[bin] += 1
+
+        total_surviving = numpy.array(list(reversed(numpy.cumsum(list(reversed(censors + nonsurvival)))))) #...
+        probdist = numpy.cumprod(1 - nonsurvival/total_surviving) #Y-axis
+
+        mark_indices = tuple(numpy.nonzero(censors))
+
+        colour = colours.next()
+
+        #Draw them
+        ax.step(points, probdist, colour, label=labels[i], where='mid')
+        ax.plot(points.take(mark_indices), probdist.take(mark_indices), colour + '|')
+
+    ax.legend(loc='best')
+    minbound, maxbound = ax.get_ybound()
+    ax.set_ybound(minbound, maxbound + 0.01)
+
+    canvas = FigureCanvas(fig)
+    canvas.figure.savefig(new_filename(fig_label, 'figure', '.png'))
 
 
 if __name__ == '__main__':

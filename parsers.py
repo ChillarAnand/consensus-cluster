@@ -95,16 +95,9 @@ class BaseParser(object):
             samples     - A list of SampleData objects
             gene_names  - A list of data vector entry labels
 
-            raw_data    - Boolean var.  If the data needs additional preprocessing and you don't want
-                          it expressed as a numpy array now, set this to True.  The default behaviour
-                          (False) is PROBABLY what you want.  Unless you're reading sequence data, which
-                          numpy handles poorly.  In that case, make sure you make them numpy arrays in
-                          the _preprocess method of your main class following appropriate numerical
-                          conversion.
-
     """
 
-    def __init__(self, data_file, raw_data=False):
+    def __init__(self, data_file):
 
         self.samples = []  #List of SampleData instances
         self.gene_names = []
@@ -115,10 +108,10 @@ class BaseParser(object):
 
         data_handle.close()
 
-        #Convert to NumPy arrays:
-        if not raw_data:
-            for sample in self.samples:
-                sample.data = array(sample.data)
+        self.M = array([ x.data for x in self.samples ])
+
+        for sam in self.samples:
+            del sam.data
 
         self.gene_names = array(self.gene_names)
 
@@ -128,12 +121,11 @@ class BaseParser(object):
             if len(incomplete) >= len(self.gene_names):
                 raise ValueError, 'No complete genes or incorrectly reported incomplete data!'
 
-            kept_indices = tuple([ x for x in xrange(len(self.gene_names)) if self.gene_names[x] not in incomplete ])
+            kept_indices = tuple([ x for x in xrange(len(self.gene_names)) if self.gene_names[x] not in incomplete ]) #FIXME: better alg plox
 
             self.gene_names = self.gene_names.take(kept_indices)
-            
-            for sample in self.samples:
-                sample.data = sample.data.take(kept_indices)
+            self.M = self.M.take(kept_indices, 1)
+
 
     def _parse_data_file(self, data_handle):
         """Parse datafile into sample name<->number pairs and load data"""
@@ -141,160 +133,16 @@ class BaseParser(object):
 
     def __delitem__(self, x):
 
+        inds = list(xrange(len(self.samples)))
+        inds.pop(x)
+
+        self.M = self.M.take(tuple(inds), 0)
+        
         del self.samples[x]
 
     def __getitem__(self, x):
 
         return self.samples[x]
-
-
-class ParseRaw(BaseParser):
-    """
-
-    ParseRaw
-        
-        Parses GSE data I received.  I'm not certain if this is the default file format.
-
-    """
-
-    def __init__(self, data_file):
-
-        self.column_headers = None
-
-        BaseParser.__init__(self, data_file)
-
-    def _parse_data_file(self, data_handle):
-        """Parse datafile into sample name<->number pairs and load probe data"""
-
-        for line in data_handle:
-            a = line.split()
-
-            if a:
-
-                if a[0][0] == '#':
-            
-                    if len(a) == 4:  #Name<->Sample number map
-                        sample_id = a[0][1:]
-                        sample_num = a[-1]
-
-                        self.samples.append(SampleData(sample_id=sample_id, sample_num=int(sample_num)))
-
-                else:
-                    if not self.column_headers:
-                        self.column_headers = a[1:]
-
-                    else:
-                        self.gene_names.append(a[0])
-
-                        for i in range(len(self.column_headers)):    #FIXME: If this isn't conveniently in the same order, it's broke
-                            self.samples[i].data.append(float(a[i + 1]))
-
-
-class ParseWang(BaseParser):
-    """
-
-    ParseWang
-
-        Strange data parser
-
-    """
-
-    def __init__(self, data_file):
-
-        BaseParser.__init__(self, data_file)
-
-    def _parse_data_file(self, data_handle):
-        """Parse datafile into sample name<->number pairs and load probe data"""
-
-        for line in data_handle:
-            a = line.split()
-
-            if a:
-
-                if a[0] == 'Original':
-            
-                    for label in a[5:]:
-                        sample_class, sample_id = label.split('_')
-                        
-                        self.samples.append(SampleData(sample_id=sample_id, sample_class=sample_class))
-
-                elif a[0][:5] == 'label':
-                    pass
-
-                else:
-                    self.gene_names.append(a[1])
-
-                    for i in range(len(self.samples)):
-                        self.samples[i].data.append(float(a[i + 3]))
-
-
-class ParseClean(BaseParser):
-    """
-
-    ParseClean
-
-        Yet another parser for strange data
-
-    """
-
-    def __init__(self, data_file):
-
-        BaseParser.__init__(self, data_file)
-
-    def _parse_data_file(self, data_handle):
-        """Parse datafile into sample name<->number pairs and load probe data"""
-
-        sample_classes = []
-        sample_ids = []
-
-        for line in data_handle:
-            a = line.split("\t")
-
-            if not a[0] and a[6]:
-                if not a[1][:4] == 'Gene':
-                    for s_class in a[6:]:
-                        if s_class:
-                            if s_class[-1] == '\n':
-                                s_class = s_class[:-1]
-
-                            sample_classes.append(s_class)
-                else:
-                    for s_id in a[6:]:
-                        if s_id:
-                            if s_id[-1] == '\n':
-                                s_id = s_id[:-1]
-
-                            sample_ids.append(s_id)
-
-                    if len(sample_ids) != len(sample_classes):
-                        print "Error! Sample ids and sample classes have different lengths!"
-                        print "Sample_ids: %s, Sample_classes: %s" % (len(sample_ids), len(sample_classes))
-                        sys.exit(1)
-                    
-                    for i in range(len(sample_classes)):
-                        self.samples.append(SampleData(sample_id=sample_ids[i], sample_class=sample_classes[i]))
-
-            elif not a[0]:
-                pass
-
-            else:
-                self.gene_names.append(a[1])
-
-                values = []
-
-                for value in a[6:]:
-                    if value:
-                        values.append(value)
-
-                if len(values) != len(self.samples):
-                    print "Error! Data values and stored samples have different lengths!"
-                    print "Values: %s, self.samples: %s" % (len(values), len(self.samples))
-                    print "Lines of data so far: %s" % len(self.samples[0].data)
-                    print "Line in question: %s" % a
-                    sys.exit(1)
-
-                for i in range(len(self.samples)):
-                    self.samples[i].data.append(float(values[i]))
 
 
 class ParseNormal(BaseParser):
@@ -342,10 +190,10 @@ class ParseNormal(BaseParser):
         return incomplete
 
 
-class ParsePartek(BaseParser):
+class ParseNoSampleNames(BaseParser):
     """
 
-    ParsePartek
+    ParseNoSampleNames
 
         This parser is used when there's a table which has the probes in columns and the samples on rows
         The first row contains probe names, and there aren't any sample names, such as in a partek output file
@@ -394,7 +242,7 @@ class ParseSTI(BaseParser):
         
         self.refs = []
 
-        BaseParser.__init__(self, data_file, True)
+        BaseParser.__init__(self, data_file)
 
     def _parse_data_file(self, data_handle):
         """Parse datafile into sample name<->number pairs and load probe data"""
@@ -412,46 +260,9 @@ class ParseSTI(BaseParser):
                     seq = a[4].strip()
                     
                     if not a[0] or a[0] == '0':
-                        self.refs.append(SampleData(sample_id=a[1], sample_class=a[3], data=seq))
+                        self.refs.append(SampleData(sample_id=a[1], sample_class=a[3], data=[ str(x) for x in seq ]))
                     else:
-                        self.samples.append(SampleData(sample_id=a[1], sample_class=a[3], data=seq))
-
-
-class ParseKidney(BaseParser):
-
-    def __init__(self, data_file):
-
-        BaseParser.__init__(self, data_file)
-
-    def _parse_data_file(self, data_handle):
-        """Parse datafile into sample name<->number pairs and load probe data"""
-
-        for line in data_handle:
-            a = line.split("\t")
-
-            if a:
-
-                if not self.samples:
-                    for sample in a[5:]:
-                        sample = sample.strip()
-
-                        self.samples.append(SampleData(sample_id=sample))
-
-                elif a[4] == 'labels':
-                    i = 0
-                    for label in a[5:]:
-                        self.samples[i].sample_class = a[5 + i]
-                        i += 1
-
-                else:
-                    self.gene_names.append(a[1])
-                    
-                    for i in range(len(self.samples)):
-                        try:
-                            self.samples[i].data.append(float(a[i+5]))
-                        except:
-                            print "Incomplete data for sample", self.samples[i].sample_id, "gene", a[1], "...using 0.0"
-                            self.samples[i].data.append(0.0)
+                        self.samples.append(SampleData(sample_id=a[1], sample_class=a[3], data=[ str(x) for x in seq ]))
 
 
 def read_table(filename):
@@ -495,4 +306,3 @@ def get_list_from_file(filename):
     handle.close()
 
     return entries
-
