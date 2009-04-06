@@ -39,12 +39,6 @@ try:
 except:
     pass
 
-try:
-    import euclidean
-    EUC_C_EXT_ENABLED = 1
-except:
-    EUC_C_EXT_ENABLED = 0
-
 if display.GTK_ENABLED:
     import gtk, gobject
 
@@ -295,9 +289,6 @@ class Gtk_UI(object):
 
         self.linkage_widgets = dict([(self.singlebox, 'single'), (self.averagebox, 'average'), (self.completebox, 'complete')])
 
-        #FIXME: You're so insensitive!
-        self.distbutton.set_sensitive(False)
-
         #Monstrosity
         self.settings = {   'kvalues': lambda: range(int(self.k_min.get_text()), int(self.k_max.get_text()) + 1),
                             'subsamples': lambda: int(self.subs_entry.get_text()),
@@ -312,7 +303,8 @@ class Gtk_UI(object):
                             'pca_fraction': lambda: float(self.pca_frac_entry.get_text()),
                             'eigenvector_weight': lambda: float(self.eig_weight_entry.get_text()),
                             'norm_var': self.normvarbox.get_active,
-                            'keep_list': lambda: self.keep_list }
+                            'keep_list': lambda: self.keep_list,
+                            'distance_metric': lambda: self.distbutton.get_model()[self.distbutton.get_active()][0]}
         
         self._set_defaults(args, kwds)
 
@@ -460,7 +452,8 @@ class Gtk_UI(object):
                             'scale': self.scalebox.set_active,
                             'pca_fraction': lambda s: self.pca_frac_entry.set_text(str(s)),
                             'eigenvector_weight': lambda s: self.eig_weight_entry.set_text(str(s)),
-                            'norm_var': self.normvarbox.set_active }
+                            'norm_var': self.normvarbox.set_active,
+                            'distance_metric': lambda s: self.distbutton.set_active([ x[0] for x in self.distbutton.get_model() ].index(s)) }
     
         defaults = {        'kvalues': range(2,7),
                             'subsamples': 300,
@@ -474,16 +467,14 @@ class Gtk_UI(object):
                             'scale': False,
                             'pca_fraction': 0.85,
                             'eigenvector_weight': 0.25,
-                            'norm_var': False }
+                            'norm_var': False,
+                            'distance_metric': 'Pearson' }
 
         for key in defaults:
             if kwds.has_key(key):
                 set_widgets[key](kwds[key])
             else:
                 set_widgets[key](defaults[key])
-
-        #FIXME: Why are you always hating on euclidean? Why?
-        self.distbutton.set_active(0)
     
     def _upd_pbar(self):
 
@@ -559,7 +550,7 @@ class CommonCluster(Gtk_UI):
         else:
             Gtk_UI.__init__(self, parser, filename, **kwds)
 
-    def set_kwds(self, keep_list = None, pca_only = False, pca_legend = True, use_gtk = True):
+    def set_kwds(self, keep_list = None, pca_only = False, pca_legend = True, use_gtk = True, **kwds):
 
         self.keep_list = keep_list   #List of filenames of samples to keep, usually set by UI
         self.pca_only = pca_only   #Do PCA and then stop
@@ -632,7 +623,7 @@ class CommonCluster(Gtk_UI):
         Don't worry if MPI fails.  It's supposed to if you aren't using it.
     
         """
-
+        
         console = self.console
         
         if keep_list is not None:
@@ -722,13 +713,13 @@ class CommonCluster(Gtk_UI):
                     plots.append(plot)
                     legend.append(cluster)
 
-            if total_ind < len(self.sdata.samples): #Unlabeled samples?  We won't name them.
+            if total_ind < len(self.sdata.samples): #Unlabeled samples?
                 leftover = numpy.setdiff1d(range(len(self.sdata.samples)), sum([ indices[id] for id in indices ], []))
                 
                 plot = N.take(tuple(leftover), 1)
 
                 plots.append(plot)
-                legend.append('')
+                legend.append('Unlabeled')
 
         else:
             #No kept files, just do as you're told
@@ -845,13 +836,6 @@ class CommonCluster(Gtk_UI):
         console.log("\nSamples: %s" % len(self.sdata.samples))
     
         console.write("\nClustering data...")
-    
-        if EUC_C_EXT_ENABLED:
-            distance_metric = euclidean.euclidean
-        else:
-            print "WARNING: No euclidean C-extension found!  Clustering will be very slow!"
-            import distance
-            distance_metric = distance.euclidean
     
         args = locals()
         del args['self']

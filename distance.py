@@ -25,9 +25,15 @@ along with ConsensusCluster.  If not, see <http://www.gnu.org/licenses/>.
 
 """
 
-import math
+import math, numpy
 
-def euclidean(first_point, second_point):
+try:
+    import euclidean
+    EUC_C_EXT_ENABLED = 1
+except:
+    EUC_C_EXT_ENABLED = 0
+
+def euc(first_point, second_point):
     """Euclidean distance"""
 
     return math.sqrt(sum([ (second_point[i] - first_point[i])**2 for i in xrange(len(first_point)) ]))
@@ -50,3 +56,29 @@ def pearson(first_point, second_point):
         return 0
 
     return 1.0 - num/den #Lower scores = higher correlation
+
+def get_dist_func(name):
+    """
+    
+    Valid names:
+        Euclidean
+        Pearson
+
+    """
+
+    if name == 'Euclidean':
+        
+        if EUC_C_EXT_ENABLED:
+            return euclidean.euclidean
+        else:
+            print "WARNING: No euclidean C-extension found!  Clustering will be very slow!"
+            return euc
+
+    elif name == 'Pearson':
+        
+        #FIXME: Until I write my own c-extension, this is as good as it gets.  And it's SLOW.
+        return lambda x, y: 1 - numpy.corrcoef(x,y)[0][1] #Again, we normalise -1 to distant and 1 to close. corrcoef returns the correlation matrix.
+
+    else:
+
+        raise ValueError, 'No distance function named: %s' % name

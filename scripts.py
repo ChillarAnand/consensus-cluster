@@ -59,12 +59,13 @@ def scale_to_set(sdata, filenames):
         name = os.path.basename(filename)
         defined_clusters[name] = parsers.get_list_from_file(filename)
 
-    samples_to_keep = sum([ defined_clusters[x] for x in defined_clusters ], [])
-
     sample_id_list = [ x.sample_id for x in sdata.samples ]
-    
+    samples_to_keep = sum([ defined_clusters[x] for x in defined_clusters ], [])
     sample_indices = union(sample_id_list, samples_to_keep)[0]
-    sdata.samples = [ sdata.samples[x] for x in sample_indices ] #Adjustment
+
+    #Adjustment
+    sdata.samples = [ sdata.samples[x] for x in sample_indices ]
+    sdata.M = sdata.M.take(tuple(sample_indices), 0)
 
     sample_id_list = [ x.sample_id for x in sdata.samples ] #This is different!
     

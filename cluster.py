@@ -26,7 +26,7 @@ along with ConsensusCluster.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import math, numpy, sys, random
-import distance, treetype, display
+import distance, treetype, display, distance
 
 from mpi_compat import *
 from itertools import combinations as comb
@@ -551,13 +551,13 @@ class ConsensusCluster(object):
 
     """
 
-    def __init__(self, sdata, num_clusters=2, distance_metric=distance.euclidean, subsamples=50, subsample_fraction=None, norm_var=False, 
+    def __init__(self, sdata, num_clusters=2, distance_metric='Euclidean', subsamples=50, subsample_fraction=None, norm_var=False, 
                  clustering_algs=[KMeansCluster], linkages=['average'], final_alg='Hierarchical', console=None, matrix_thresh=0.0, **kwds):
 
         dim = len(sdata.samples)
         mat = numpy.zeros((dim, dim), dtype=float)
 
-        self.__dict__ = { 'reset_datapoints': False, 'datapoints': sdata.samples, 'num_clusters': num_clusters, 'distance_metric': distance_metric,
+        self.__dict__ = { 'reset_datapoints': False, 'datapoints': sdata.samples, 'num_clusters': num_clusters, 'distance_metric': distance.get_dist_func(distance_metric),
                           'sim_matrix_clustcount': mat.copy(), 'sim_matrix_totalcount': mat.copy(), 'consensus_matrix': mat.copy(), 'tree': None,
                           'norm_var': norm_var, 'clustering_algs': clustering_algs, 'linkages': linkages, 'final_alg': final_alg, 'console': console,
                           'matrix_thresh': matrix_thresh, 'M': sdata.M }
