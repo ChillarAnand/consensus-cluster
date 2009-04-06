@@ -71,7 +71,6 @@ def get_dist_func(name):
         if EUC_C_EXT_ENABLED:
             return euclidean.euclidean
         else:
-            print "WARNING: No euclidean C-extension found!  Clustering will be very slow!"
             return euc
 
     elif name == 'Pearson':

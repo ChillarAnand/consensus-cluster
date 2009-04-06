@@ -211,7 +211,7 @@ class ConsoleDisplay(object):
         """
         
         if self.tview is None:
-            print message
+            print(message)
         else:
             gtk.gdk.threads_enter()
             iter = self.viewbuf.get_end_iter()

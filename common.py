@@ -468,7 +468,7 @@ class Gtk_UI(object):
                             'pca_fraction': 0.85,
                             'eigenvector_weight': 0.25,
                             'norm_var': False,
-                            'distance_metric': 'Pearson' }
+                            'distance_metric': 'Euclidean' }
 
         for key in defaults:
             if kwds.has_key(key):
@@ -567,6 +567,7 @@ class CommonCluster(Gtk_UI):
         opts = {}
         avail = ['-f', '-p', '-d', '-c', '-h']
 
+        @only_once
         def usage(unrec=None):
 
             if unrec is not None:
@@ -578,7 +579,6 @@ class CommonCluster(Gtk_UI):
             print("\t-d\t\t\t\tDon't init display, run from console.")
             print("\t-c <file1 file2 file3 ..>\tDefine samples (one on each line) in file1, etc as clusters.  Sample set will be reduced to these samples, and their labels will be shown in logs and PCA plot.")
             print("\t-h\t\t\t\tThis help.")
-            sys.exit(0)
 
         args = sys.argv[1:]
 
@@ -590,6 +590,7 @@ class CommonCluster(Gtk_UI):
             else:
                 if last_opt is None:
                     usage(args[i])
+                    sys.exit(0)
 
                 opts[last_opt].append(args[i])
 
@@ -611,6 +612,7 @@ class CommonCluster(Gtk_UI):
 
             elif opt == '-h':
                 usage()
+                sys.exit(0)
 
         return parser, filename
 
@@ -634,7 +636,7 @@ class CommonCluster(Gtk_UI):
             if parser is None or filename is None:
                 console.except_to_console('No parser or no filename selected!')
     
-            self.sdata = console.announce_wrap('Parsing data...', parser, filename)
+            self.sdata = console.announce_wrap('Parsing data...', parser, filename, console)
     
             if self.keep_list is not None:
                 self.sdata, self.defined_clusters = console.announce_wrap('Removing samples not found in %s...' % ", ".join(self.keep_list), scripts.scale_to_set, self.sdata, self.keep_list)

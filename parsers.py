@@ -97,10 +97,12 @@ class BaseParser(object):
 
     """
 
-    def __init__(self, data_file):
+    def __init__(self, data_file, console=None):
 
         self.samples = []  #List of SampleData instances
         self.gene_names = []
+
+        self.console = console #Use this to write to the user; avoid print if possible
         
         data_handle = open(data_file, 'r')
 
@@ -156,9 +158,9 @@ class ParseNormal(BaseParser):
         
     """
 
-    def __init__(self, data_file):
+    def __init__(self, data_file, console=None):
 
-        BaseParser.__init__(self, data_file)
+        BaseParser.__init__(self, data_file, console)
 
     def _parse_data_file(self, data_handle):
         """Parse datafile into sample name<->number pairs and load probe data"""
@@ -180,10 +182,15 @@ class ParseNormal(BaseParser):
                     self.gene_names.append(a[0])
                     
                     for i in range(len(self.samples)):
+
                         try:
                             self.samples[i].data.append(float(a[i+1]))
+
                         except:
-                            print "Incomplete data for sample", self.samples[i].sample_id, "gene", a[0]
+
+                            if self.console is not None:
+                                self.console.write("Incomplete data for sample %s gene %s" % (self.samples[i].sample_id, a[0]))
+
                             self.samples[i].data.append(0.0)
                             incomplete.append(a[0])
 
@@ -200,9 +207,9 @@ class ParseNoSampleNames(BaseParser):
 
     """
 
-    def __init__(self, data_file):
+    def __init__(self, data_file, console=None):
 
-        BaseParser.__init__(self, data_file)
+        BaseParser.__init__(self, data_file, console)
 
     def _parse_data_file(self, data_handle):
 
@@ -238,11 +245,11 @@ class ParseSTI(BaseParser):
 
     """
 
-    def __init__(self, data_file):
+    def __init__(self, data_file, console=None):
         
         self.refs = []
 
-        BaseParser.__init__(self, data_file)
+        BaseParser.__init__(self, data_file, console)
 
     def _parse_data_file(self, data_handle):
         """Parse datafile into sample name<->number pairs and load probe data"""

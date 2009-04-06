@@ -147,7 +147,7 @@ def reorder(tree, M):
     best_energy  = new_energy
     best_order = [ x._flipped for x in nodes ] #Track node state in binary sequence form so we can come back to it
     
-    print "Starting energy score:", new_energy
+    #print "Starting energy score:", new_energy
     
     for i in xrange(1, 4000000):
 
@@ -164,7 +164,7 @@ def reorder(tree, M):
 
         if not (i % 25000):
             temp = temp * 0.90
-            print "Acceptance rate:", ((i - not_accepted) / float(i))
+            #print "Acceptance rate:", ((i - not_accepted) / float(i))
 
         if new_energy < last_energy:
             if ran() > exp((new_energy - last_energy) / temp):
@@ -177,10 +177,10 @@ def reorder(tree, M):
             last_best = i
 
         if (i - last_best) > 100000:            #No point in going farther than this, usually
-            print "Breaking at", i
+            #print "Breaking at", i
             break
 
-    print "\nFinal energy score:", best_energy
+    #print "\nFinal energy score:", best_energy
 
     #Reorder the tree to the best order, in place
     for i in xrange(len(nodes)):

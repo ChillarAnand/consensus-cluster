@@ -725,8 +725,6 @@ class ConsensusCluster(object):
         
         """
         
-        print "\n\nReordering the consensus matrix...\n"
-
         if self.tree is not None:
 
             treetype.reorder(self.tree, self.consensus_matrix)    
@@ -746,14 +744,14 @@ class ConsensusCluster(object):
                 import sa
                 energy = sa.c_energy
             except:
-                print "WARNING: No SA C-extension found! SA will be very slow!"
+                #print "WARNING: No SA C-extension found! SA will be very slow!"
                 cost        = lambda i, j, matrix: matrix[i][j]      #The similarity between two samples
                 energy      = lambda x, matrix: sum([ cost(x[i], x[i+1], matrix) for i in range(sample_len - 1) ])**2  #Sum of the cost of each successive pair, squared
     
             not_accepted, last_best, new_energy = 0, 0, energy(sample_order, self.consensus_matrix)
             best_energy, best_order = new_energy, list(sample_order)
             
-            print "Starting energy score:", new_energy
+            #print "Starting energy score:", new_energy
     
             for i in xrange(1, 4000000):
     
@@ -777,7 +775,7 @@ class ConsensusCluster(object):
     
                 if not (i % 25000):
                     temp = temp * 0.90
-                    print "Acceptance rate:", ((i - not_accepted) / float(i))
+                    #print "Acceptance rate:", ((i - not_accepted) / float(i))
     
                 if new_energy < last_energy:
                     if ran() > e**((new_energy - last_energy) / temp):
@@ -791,10 +789,10 @@ class ConsensusCluster(object):
                     last_best = i
     
                 if (i - last_best) > 100000:            #No point in going farther than this, usually
-                    print "Breaking at", i
+                    #print "Breaking at", i
                     break
     
-            print "\nFinal energy score:", best_energy
+            #print "\nFinal energy score:", best_energy
 
             self.reorder_indices = best_order #Use this to generate the logs afterwards
             best_order = tuple(best_order)
