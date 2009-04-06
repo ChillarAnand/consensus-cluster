@@ -42,7 +42,7 @@ except:
 if display.GTK_ENABLED:
     import gtk, gobject
 
-DEBUG = 1 #If true, errors in the GTK UI will cause an exception to be thrown and therefore interrupt workflow (a program restart will be required)
+DEBUG = 0 #If true, errors in the GTK UI will cause an exception to be thrown and therefore interrupt workflow (a program restart will be required)
 
 
 class Gtk_UI(object):
