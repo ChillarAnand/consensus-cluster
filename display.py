@@ -679,7 +679,7 @@ def km(times, events, labels, fig_label = None):
         nonsurvival = numpy.zeros(len(points)) #float
         censors = nonsurvival.copy()
 
-        bin = 1 #Leave time 0 alone, when everyone is alive
+        bin = 1 #Ignore 0, everyone's alive
         cur = ar[0]
 
         for j in xrange(len(ar)):
@@ -692,10 +692,17 @@ def km(times, events, labels, fig_label = None):
             else:
                 censors[bin] += 1
 
-        total_surviving = numpy.array(list(reversed(numpy.cumsum(list(reversed(censors + nonsurvival)))))) #...
-        probdist = numpy.cumprod(1 - nonsurvival/total_surviving) #Y-axis
-
+        rev_ind = tuple(reversed(range(len(censors))))
         mark_indices = tuple(numpy.nonzero(censors))
+        total_at_risk = numpy.cumsum(censors.take(rev_ind) + nonsurvival.take(rev_ind)).take(rev_ind)
+        
+        #Interval adjustments
+        censors[2] += censors[1]
+        censors[1] = 0
+        censors[-1] = 0
+        total_at_risk -= censors
+
+        probdist = numpy.cumprod(1 - nonsurvival/total_at_risk) #Y-axis
 
         colour = colours.next()
 

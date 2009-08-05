@@ -60,7 +60,45 @@ def pca(M, frac = 1.):
     
     M += avg    #M is a reference...shouldn't touch user's toys
     
-    variances = s**2/M.shape[1]
+    i = get_var_fractions(s, frac)
+
+    #return numpy.transpose(numpy.dot(v[:i], numpy.transpose(M))) #The transformed data
+    return v[:i]
+
+def mds(M, frac = 1.):
+    """
+    
+    Takes a matrix M and returns the classical multidimensional scaling
+    
+    If a lower dimensional representation is needed (e.g., for a plot), frac is the accuracy of reconstruction
+
+    """
+
+    avgrow = M.mean(1)
+    avgcol = M.mean(0)
+
+    N = (M.T - avgrow).T - avgcol + M.mean() #Row and column centred
+
+    u, s, v = numpy.linalg.svd(N, 0)
+
+    i = get_var_fractions(s, frac)
+    
+    S = numpy.identity(s.shape[0]) * s
+
+    return numpy.dot(u, numpy.sqrt(S))[:,:i]
+    
+def get_var_fractions(s, frac):
+    """
+    Get the element that, when summed up to this element, frac
+    of the percentage of the variance is explained by the elements
+    summed in this way.
+
+    s is the singular matrix (in 1-D)
+    frac is the fraction to explain
+    
+    """
+
+    variances = s**2/len(s)
     total_variances = numpy.sum(variances, 0)
 
     variance_fractions = numpy.divide(variances, total_variances)
@@ -70,11 +108,10 @@ def pca(M, frac = 1.):
             break
 
     if i < 2:
-        i = 2   #Minimum 2
+        i = 2   #Minimum 2 for plotting!
 
-    #return numpy.transpose(numpy.dot(v[:i], numpy.transpose(M))) #The transformed data
-    return v[:i]
-    
+    return i
+
 def select_genes(v, weight):
     """Returns a tuple of the indices of those genes which comprise the top weight% in each eigenvector"""
 
@@ -155,42 +192,29 @@ def subtract_feature_medians(M):
 
     return M - numpy.median(M, 0)
 
-def get_columns(M, list1, list2):
-    """
+def row_normalise_mean(M):
+    """Normalise rows to mean 0"""
 
-    Return a list of (col1, col2) pairs
+    return (M.T - numpy.average(M, 1)).T
 
-        list1 - list of row indices for the first group
-        list2 - list of row indices for the second group
+def row_normalise_median(M):
+    """Normalise rows to median 0"""
 
-    This function assumes samples are in rows and genes are in columns
-
-    """
-
-    cols = []
-
-    N1 = M.take(tuple(list1), 0)
-    N2 = M.take(tuple(list2), 0)
-
-    for i in xrange(len(M[0])):
-        col1 = N1[:,i]
-        col2 = N2[:,i]
-    
-        cols.append((col1, col2))
-
-    return cols
+    return (M.T - numpy.median(M, 1)).T
 
 def snr(M, list1, list2, threshold = None, significance = False):
     """
 
     Performs a signal-to-noise ratio test on M, assuming samples are in rows and genes are in columns
 
-        list1   - List of row indices for first group
-        list2   - List of row indices for second group
-        threshold - Minimum SNR ratio to report
+        list1       - List of row indices for first group
+        list2       - List of row indices for second group
+        threshold   - Minimum SNR ratio to report
+        significance - Run kruskal ttest (requires scipy)
 
-    Returns a reverse-ordered list of (ratio, index, mean1, mean2) pairs, where index is the column index of the gene,
-    and mean1 and mean2 correspond to the mean for that particular gene in list1 and list2, respectively
+    Returns a reverse-ordered list of (ratio, index, mean1, mean2, pvalue) tuples, where index is the column index of the gene,
+    and mean1 and mean2 correspond to the mean for that particular gene in list1 and list2, respectively.  pvalue is blank if significance
+    is False.
 
     If signifance is true (and scipy is installed) a pvalue will be assigned. Be ware this increases processing
     time significantly (ha).
@@ -198,30 +222,39 @@ def snr(M, list1, list2, threshold = None, significance = False):
     """
 
     ratios = []
-    cols = get_columns(M, list1, list2)
 
-    for i in xrange(len(cols)):
+    N1 = M.take(tuple(list1), 0)
+    N2 = M.take(tuple(list2), 0)
 
-        col1, col2 = cols[i][0], cols[i][1]
-        mean1, mean2 = col1.mean(), col2.mean()
+    N1mean, N2mean = N1.mean(0), N2.mean(0)
+    means = numpy.abs(N1mean - N2mean)
+    stds  = N1.std(0) + N2.std(0)
 
-        if PVAL and significance:
-            pval = st.kruskal(col1, col2)[1]
-        else:
-            pval = ''
+    if stds.all():
+        rats = means / stds
+    else:
+        rats = numpy.zeros((len(means),), dtype=numpy.float32)
+        for i in xrange(len(stds)):
+            if stds[i]:
+                rats[i] = means[i] / stds[i]
 
-        ratios.append( (abs((mean1 - mean2) / (col1.std() + col2.std())), i, mean1, mean2, pval) )
+    for i in xrange(M.shape[1]):
+
+        rat = rats[i]
+        mean1, mean2 = N1mean[i], N2mean[i]
+
+        if threshold is None or rat >= threshold:
+
+            if PVAL and significance:
+                pval = st.kruskal(N1[:,i], N2[:,i])[1]
+            else:
+                pval = ''
+    
+            ratios.append( (rat, i, mean1, mean2, pval) )
 
     ratios.sort(reverse=True)
 
-    if threshold is not None:
-        for i in xrange(len(ratios)):
-            if ratios[i][0] < threshold:
-                break
-    else:
-        i = len(ratios)
-
-    return ratios[:i]
+    return ratios
 
 def binary_classifier(M, list1, list2, threshold = None, prior_prob = None):
     """
@@ -243,6 +276,7 @@ def binary_classifier(M, list1, list2, threshold = None, prior_prob = None):
     NOTE: Prior probabilities unimplemented
 
     """
+    #FIXME: Broken currently, fix column shit
     
     w = []
     w0 = 0.0

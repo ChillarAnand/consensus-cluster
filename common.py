@@ -30,6 +30,7 @@ warnings.simplefilter('ignore', DeprecationWarning)
 
 import numpy, sys, time, os
 import pca, parsers, cluster, display, scripts
+from itertools import combinations as comb
 
 from mpi_compat import *
 
@@ -543,19 +544,21 @@ class CommonCluster(Gtk_UI):
         self.set_kwds(**kwds) #Allows subclassing methods to pass along variables that aren't set in the UI.
 
         if len(sys.argv) > 1:
-            parser, filename = self.handle_cmdline_args(parser, filename)
+            parser, filename, settings = self.handle_cmdline_args(parser, filename)
+            kwds.update(settings)
 
         if not self.use_gtk:
             self.consensus_procedure(parser, filename, **kwds)
         else:
             Gtk_UI.__init__(self, parser, filename, **kwds)
 
-    def set_kwds(self, keep_list = None, pca_only = False, pca_legend = True, use_gtk = True, **kwds):
+    def set_kwds(self, keep_list = None, pca_only = False, pca_legend = True, use_gtk = True, no_pca = False, **kwds):
 
         self.keep_list = keep_list   #List of filenames of samples to keep, usually set by UI
         self.pca_only = pca_only   #Do PCA and then stop
         self.pca_legend = pca_legend  #Draw the PCA legend?
         self.use_gtk = use_gtk
+        self.no_pca = no_pca
 
     def handle_cmdline_args(self, parser, filename):
         """
@@ -563,9 +566,15 @@ class CommonCluster(Gtk_UI):
         Should be self-explanatory.  An unrecognised option or -h will pull up the usage.
 
         """
+        #TODO
+        #Add probe list
+        #Add write_ratio
 
-        opts = {}
-        avail = ['-f', '-p', '-d', '-c', '-h']
+        avail = dict.fromkeys(['-f', '-p', '-d', '-c', '-h', '--nopca', '--log2', '--nolog2', '--center', '--nocenter',
+                               '--scale', '--noscale', '--submedians', '--nosubmedians',
+                               '--pcafraction', '--eigweight', '--krange', '--subsamples', '--subfraction', '--normvar',
+                               '--nonormvar', '--snr', '--comparelogs', '--plist', '--noselection', '--help',
+                               '--kmeans', '--som', '--pam', '--hier', '--euclidian', '--corr'])
 
         @only_once
         def usage(unrec=None):
@@ -576,13 +585,48 @@ class CommonCluster(Gtk_UI):
             print("USAGE: common.exe (or python common.py) [OPTIONS]\n")
             print("\t-f <filename>\t\t\tLoad <filename> for clustering.  Default Parser: Normal")
             print("\t-p <parser>\t\t\tParse <filename> with <parser>.  Only valid with the -f option.  E.g. 'Normal'")
-            print("\t-d\t\t\t\tDon't init display, run from console.")
-            print("\t-c <file1 file2 file3 ..>\tDefine samples (one on each line) in file1, etc as clusters.  Sample set will be reduced to these samples, and their labels will be shown in logs and PCA plot.")
-            print("\t-h\t\t\t\tThis help.")
+            print("\t-d\t\t\t\tDon't init display, run from console. This happens automatically if there is no\n\t\t\t\t\tdisplay or the required libraries are unavailable.")
+            
+            print("\n\t**DATA NORMALISATION**\n")
+            print("\t--log2, --nolog2\t\tPerform log2 reexpression, or turn it off. Default is off.")
+            print("\t--submedians, --nosubmedians\tPerform median centring, or turn it off. Default is off.\n\t\t\t\t\tNOTE: Turning this on will turn off mean centring.")
+            print("\t--center, --nocenter\t\tPerform mean centring, or turn it off. Default is on.\n\t\t\t\t\tNOTE: Turning this on will turn off median centring.")
+            print("\t--scale, --noscale\t\tPerform RMS scaling, or turn it off. Default is off.")
+            print("\t--normvar, --nonormvar\t\tNormalise variance to 1 for each subsample, or turn it off. Default is off.")
+            
+            print("\n\t**PCA AND FEATURE SELECTION**\n")
+            print("\t--nopca\t\t\t\tDo not perform PCA at all. This precludes feature selection.\n\t\t\t\t\tUseful if your data is known to be singular.")
+            print("\t--pcafraction <fraction>\tSelect features from the top <fraction> principle components. Default is 0.85")
+            print("\t--eigweight <fraction>\t\tSelect the top <fraction> features by weight in each principle component.\n\t\t\t\t\tDefault is 0.25")
+            print("\t--noselection\t\t\tDo not perform feature selection. Simply sets pcafraction and eigweight to 1.")
+            
+            print("\n\t**SAMPLE SELECTION**\n")
+            print("\t-c <file1 file2 file3 ..>\tDefine samples (one on each line) in file1, etc as clusters.  Sample set will be\n\t\t\t\t\treduced to these samples, and their labels will be shown in logs and PCA plot.")
+            print("\t--krange <fst> <snd>\t\tRepeat for each kvalue between <fst> and <snd> inclusive. Default is 2 to 6.")
+            print("\t--subsamples  <number>\t\tNumber of clustering iterations to perform. Default is 300.")
+            print("\t--subfraction <fraction>\tSelect a random <fraction> of the samples each iteration. Default is 0.80")
+            print("\t--help, -h\t\t\tThis help.")
+
+            print("\n\t**CLUSTERING OPTIONS**\n")
+            print("\t--kmeans\t\t\tRun the K-Means algorithm")
+            print("\t--som\t\t\t\tRun the Self-Organising Map algorithm")
+            print("\t--pam\t\t\t\tRun the Partition Around Medoids algorithm")
+            print("\t--hier\t\t\t\tRun the Hierarchical Clustering algorithm. Note that this option adds the Hierarchical\n\t\t\t\t\talgorithm to clustering iterations, rather than the 'final' consensus clustering.")
+            print("\t--euclid\t\t\tCluster using the Euclidean distance metric")
+            print("\t--corr\t\t\t\tCluster using the Pearson Correlation distance metric")
+            print("\n\n\tExample: python common.py -f mydata.txt -d --kmeans --log2 --submedians --noselection -c clusterdefs/*")
+            print("\n\tOpens mydata.txt, log2 reexpresses and median centres the data, performs no feature selection, and begin k-means clustering using the cluster definitions in the clusterdefs folder without using the GUI.\n")
+
+        RUN_SNR = 0
+        RUN_PLIST = 0
+        last_opt = None
+        
+        opts = {}     # Contains recognised options as keys and a list of their arguments as values
+        settings = {} # Handle settings normally set via the GUI
+        algs = []     # Clustering algorithms
 
         args = sys.argv[1:]
 
-        last_opt = None
         for i in xrange(len(args)):
             if args[i] in avail:
                 last_opt = args[i]
@@ -601,20 +645,62 @@ class CommonCluster(Gtk_UI):
                 if '-p' not in opts:
                     parser = parsers.ParseNormal
 
-            elif opt == '-p':
-                parser = eval('parsers.Parse' + opts[opt][0])
+            elif opt == '-p': parser = eval('parsers.Parse' + opts[opt][0])
+            elif opt == '-d': self.use_gtk = False
+            elif opt == '-c': self.keep_list = opts[opt]
+            elif opt == '--nopca': self.no_pca = True
+            elif opt == '--log2': settings['log2'] = True
+            elif opt == '--kmeans': algs.append(cluster.KMeansCluster)
+            elif opt == '--som': algs.append(cluster.SOMCluster)
+            elif opt == '--pam': algs.append(cluster.PAMCluster)
+            elif opt == '--hier': algs.append(cluster.HierarchicalCluster)
+            elif opt == '--corr': settings['distance_metric'] = 'Pearson'
+            elif opt == '--euclid': settings['distance_metric'] = 'Euclidean'
+            elif opt == '--noselection':
+                settings['eigenvector_weight'] = 1.0
+                settings['pca_fraction'] = 1.0
+            elif opt == '--submedians':
+                settings['sub_medians'] = True
+                settings['center'] = False
+            elif opt == '--center':
+                settings['center'] = True
+                settings['sub_medians'] = False
+            elif opt == '--scale': settings['scale'] = True
+            elif opt == '--nolog2': settings['log2'] = False
+            elif opt == '--nosubmedians': settings['sub_medians'] = False
+            elif opt == '--nocenter': settings['center'] = False
+            elif opt == '--noscale': settings['scale'] = False
+            elif opt == '--pcafraction': settings['pca_fraction'] = opts[opt][0]
+            elif opt == '--eigweight': settings['eigenvector_weight'] = opts[opt][0]
+            elif opt == '--krange': settings['kvalues'] = range(int(opts[opt][0]), int(opts[opt][1])+1)
+            elif opt == '--subsamples': settings['subsamples'] = opts[opt][0]
+            elif opt == '--subfraction': settings['subsample_fraction'] = opts[opt][0]
+            elif opt == '--normvar': settings['norm_var'] = True
+            elif opt == '--nonormvar': settings['norm_var'] = False
+            elif opt == '--comparelogs':
+                import log_analyse
 
-            elif opt == '-d':
-                self.use_gtk = False
+                log1 = opts[opt][0]
+                log2 = opts[opt][1]
+    
+                log1_dict = log_analyse.gen_cluster_dict(log1)
+                log2_dict = log_analyse.gen_cluster_dict(log2)
+                
+                log_analyse.compare(log1_dict, log2_dict, log1, log2)
+                log_analyse.compare(log2_dict, log1_dict, log2, log1)
+                sys.exit(0)
 
-            elif opt == '-c':
-                self.keep_list = opts[opt]
-
-            elif opt == '-h':
+            #FIXME: These two require passing a modified sdata, which would get overwritten later...
+            elif opt == '--snr': RUN_SNR = 1
+            elif opt == '--plist': RUN_PLIST = 1
+            elif opt == '-h' or opt == '--help':
                 usage()
                 sys.exit(0)
 
-        return parser, filename
+        if algs:
+            settings['clustering_algs'] = algs
+
+        return parser, filename, settings
 
     def consensus_procedure(self, parser, filename, log2=False, sub_medians=False, center=True, scale=False, pca_fraction=0.85, eigenvector_weight=0.25,
                  kvalues=range(2,7), subsamples=300, subsample_fraction=0.8, norm_var=False, keep_list=None, **kwds):
@@ -633,13 +719,18 @@ class CommonCluster(Gtk_UI):
 
         try:
 
+            cdir   = os.path.realpath(os.curdir)
+            tstamp = time.strftime("%Y-%m-%d %H.%M.%S")
+            os.mkdir(tstamp)
+            os.chdir(cdir + os.path.sep + tstamp)
+
             if parser is None or filename is None:
                 console.except_to_console('No parser or no filename selected!')
     
             self.sdata = console.announce_wrap('Parsing data...', parser, filename, console)
     
             if self.keep_list is not None:
-                self.sdata, self.defined_clusters = console.announce_wrap('Removing samples not found in %s...' % ", ".join(self.keep_list), scripts.scale_to_set, self.sdata, self.keep_list)
+                self.sdata, self.defined_clusters = console.announce_wrap('Removing samples not found in %s...' % ", ".join(self.keep_list), scripts.scale_to_set, self.sdata, *self.keep_list)
     
             console.announce_wrap('Preprocessing data...', self._preprocess)
     
@@ -647,7 +738,7 @@ class CommonCluster(Gtk_UI):
             if len(dict.fromkeys(idlist)) != len(idlist):
                 console.except_to_console('One or more Sample IDs are not unique!')
     
-            console.announce_wrap('Running PCA...', self.run_pca, log2, sub_medians, center, scale, pca_fraction, eigenvector_weight, self.pca_legend)
+            console.announce_wrap('Running PCA...', self.run_pca, log2, sub_medians, center, scale, pca_fraction, eigenvector_weight, self.pca_legend, self.no_pca)
             
             if not self.pca_only:
                 console.announce_wrap('Postprocessing data...', self._postprocess)
@@ -668,7 +759,7 @@ class CommonCluster(Gtk_UI):
             else:
                 pass
 
-        self._complete_clustering(kwds)
+        self._complete_clustering(cdir, kwds)
 
     @only_once
     def makeplot(self, M, V, label, pca_legend=True, defined_clusters=None):
@@ -716,7 +807,7 @@ class CommonCluster(Gtk_UI):
                     legend.append(cluster)
 
             if total_ind < len(self.sdata.samples): #Unlabeled samples?
-                leftover = numpy.setdiff1d(range(len(self.sdata.samples)), sum([ indices[id] for id in indices ], []))
+                leftover = numpy.setdiff1d(xrange(len(self.sdata.samples)), sum([ indices[id] for id in indices ], []))
                 
                 plot = N.take(tuple(leftover), 1)
 
@@ -733,7 +824,7 @@ class CommonCluster(Gtk_UI):
     
         display.Plot(plots, legend = legend, fig_label = label)
     
-    def run_pca(self, log2, sub_medians, center, scale, pca_fraction, eigenvector_weight, pca_legend=True):
+    def run_pca(self, log2, sub_medians, center, scale, pca_fraction, eigenvector_weight, pca_legend=True, no_pca=False):
         """
     
         Create a matrix from self.sdata.samples, normalise it, and then run PCA to reduce dimensionality.
@@ -787,16 +878,24 @@ class CommonCluster(Gtk_UI):
         console.log("Normalising %sx%s matrix" % (len(self.sdata.samples), len(self.sdata.M[0])))
     
         M = pca.normalise(M, log2=log2, sub_medians=False, center=center, scale=scale) #PCA requires & performs mean centering, so it makes sense to subtract medians afterwards
-        V, gene_indices = pca.get_pca_genes(M, pca_fraction, eigenvector_weight)
+        
+        #FIXME: I can see people wanting this...should add it to GUI
+        if not self.no_pca:        
+            
+            V, gene_indices = pca.get_pca_genes(M, pca_fraction, eigenvector_weight)
 
-        console.log("Found %s principle components in the top %s fraction" % (len(V), pca_fraction))
-        console.log("Found %s reliable features occurring with high weight (top %s by absolute value)" % (len(gene_indices), eigenvector_weight))
+            console.log("Found %s principle components in the top %s fraction" % (len(V), pca_fraction))
+            console.log("Found %s reliable features occurring with high weight (top %s by absolute value)" % (len(gene_indices), eigenvector_weight))
+            
+            self.makeplot(M, V, 'PCA results - PC2v1 - All samples', pca_legend)
+            self.makeplot(M, V[1:], 'PCA results - PC3v2 - All samples', pca_legend)
         
-        self.makeplot(M, V, 'PCA results - PC2v1 - All samples', pca_legend)
-        #self.makeplot(M, V[1:], 'PCA results - PC3v2 - All samples', pca_legend)
-        
-        #Reduce dimensions
-        M = M.take(gene_indices, 1)
+            #Reduce dimensions
+            M = M.take(gene_indices, 1)
+
+        else:
+            #Ugly...
+            gene_indices = tuple(range(M.shape[1]))
         
         if sub_medians:
             M = pca.subtract_medians(M)
@@ -865,18 +964,27 @@ class CommonCluster(Gtk_UI):
             M = clust_data.consensus_matrix.take(tuple(numpy.argsort(clust_data.reorder_indices)), 0)
             #for sam in clust_data.datapoints:
             #    dc.setdefault(str(sam.cluster_id), []).append(sam.sample_id)
-            V, core_samples = pca.get_pca_genes(M, 0.85, 0.25)
+            V, core_samples = pca.get_pca_genes(M, 0.85, 0.15)
             
             for i in core_samples:
                 sam = clust_data.datapoints[clust_data.reorder_indices[i]]
                 dc.setdefault(str(sam.cluster_id), []).append(sam.sample_id)
 
             #dc['Core'] = [ clust_data.datapoints[clust_data.reorder_indices[x]].sample_id for x in core_samples ]
+            
+            console.new_logfile('%s cluster suggested cores' % num_clusters)
+
+            for i in dc:
+                console.log('\nCluster %s core:\n' % i, display=False)
+            
+                for sample_id in dc[i]:
+                    console.log("\t%s" % sample_id, display=False)
 
             self.makeplot(M, V, '%s Cluster PCA Plot' % num_clusters, pca_legend = True, defined_clusters = dc)
 
-        console.write("Creating Consensus PCA Plot...")
-        tst()
+        if DEBUG:
+            console.write("\nCreating Consensus PCA Plot...")
+            tst()
 
         clust_data._reset_clusters() #Set cluster_ids to None
     
@@ -901,8 +1009,7 @@ class CommonCluster(Gtk_UI):
 
             See display.ConsoleDisplay for logging/display usage.
 
-            You may want to subclass _report if you want to report on additional information, such as a signal-to-noise ratio test of gene
-            expression between any two clusters.
+            You may want to subclass _report if you want to report on additional information, or if you simply want to turn this logging feature off.
 
         """
 
@@ -956,35 +1063,34 @@ class CommonCluster(Gtk_UI):
         
         if hasattr(self.sdata, 'gene_names'):
             
-            for i in xrange(len(cluster_list)):
-                for j in xrange(1, len(cluster_list) - i):
-                    clust1, clust2 = cluster_list[i], cluster_list[i+j] #Still num, id pairs
-                    
-                    ttest = False
-                    if kwds.has_key('ttest') and kwds['ttest']:
-                        ttest = True
+            for i, j in comb(xrange(len(cluster_list)), 2):
+                clust1, clust2 = cluster_list[i], cluster_list[j] #Still num, id pairs
+                
+                ttest = False
+                if kwds.has_key('ttest') and kwds['ttest']:
+                    ttest = True
 
-                    ratios = pca.snr(M, cluster_sample_indices[clust1[1]], cluster_sample_indices[clust2[1]], threshold=threshold, significance=ttest)
-                    
-                    if ratios:
-                        buffer.append("\nCluster %s vs %s:" % (clust1[0], clust2[0]))
-                        buffer.append("--------------------\n")
-                        buffer.append("Gene ID\t\tCluster %s Avg\tCluster %s Avg\tSNR Ratio\tp-value" % (clust1[0], clust2[0]))
-    
-                        for result in ratios:
-                            buffer.append("%10s\t%f\t%f\t%f\t%s" % (self.sdata.gene_names[result[1]], result[2], result[3], result[0], result[4]))
+                ratios = pca.snr(M, cluster_sample_indices[clust1[1]], cluster_sample_indices[clust2[1]], threshold=threshold, significance=ttest)
+                
+                if ratios:
+                    buffer.append("\nCluster %s vs %s:" % (clust1[0], clust2[0]))
+                    buffer.append("--------------------\n")
+                    buffer.append("Gene ID\t\tCluster %s Avg\tCluster %s Avg\tSNR Ratio\tp-value" % (clust1[0], clust2[0]))
 
-                    if kwds.has_key('classifier') and kwds['classifier'] and ratios:
-                        clsbuffer.append("\nCluster %s vs %s:" % (clust1[0], clust2[0]))
-                        clsbuffer.append("--------------------\n")
+                    for ratio, gene_idx, mean1, mean2, pval in ratios:
+                        buffer.append("%10s\t\t%f\t\t%f\t\t%f\t\t%s" % (self.sdata.gene_names[gene_idx], mean1, mean2, ratio, pval))
 
-                        classif_list = pca.binary_classifier(M, cluster_sample_indices[clust1[1]], cluster_sample_indices[clust2[1]], threshold)
-                        #Returns (a, b), where a is w in (wi, i) pairs and b is w0
-                        clsbuffer.append("w0 is %s" % classif_list[1])
-                        clsbuffer.append("\nGene ID\t\tMultiplier")
+                if kwds.has_key('classifier') and kwds['classifier'] and ratios:
+                    clsbuffer.append("\nCluster %s vs %s:" % (clust1[0], clust2[0]))
+                    clsbuffer.append("--------------------\n")
 
-                        for result in classif_list[0]:
-                            clsbuffer.append("%10s\t%f" % (self.sdata.gene_names[result[1]], result[0]))
+                    classif_list = pca.binary_classifier(M, cluster_sample_indices[clust1[1]], cluster_sample_indices[clust2[1]], threshold)
+                    #Returns (a, b), where a is w in (wi, i) pairs and b is w0
+                    clsbuffer.append("w0 is %s" % classif_list[1])
+                    clsbuffer.append("\nGene ID\t\tMultiplier")
+
+                    for result in classif_list[0]:
+                        clsbuffer.append("%10s\t%f" % (self.sdata.gene_names[result[1]], result[0]))
         
         def write_buffer(name, desc, buf):
             console.new_logfile(name)
@@ -1086,7 +1192,7 @@ class CommonCluster(Gtk_UI):
 
         pass
 
-    def _complete_clustering(self, kwds):
+    def _complete_clustering(self, cdir, kwds):
         """
 
         Run when the clustering finishes.
@@ -1094,6 +1200,8 @@ class CommonCluster(Gtk_UI):
         Right now it just ungreys the button and resets graphical things.
 
         """
+
+        os.chdir(cdir)
 
         if display.DISPLAY_ENABLED and self.use_gtk: 
 

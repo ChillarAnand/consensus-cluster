@@ -2,6 +2,35 @@
 
 import parsers, numpy, os, log_analyse, pca, display
 
+from itertools import combinations as comb
+
+def list_or_files(*args):
+    """
+    
+    Return the contents of *args as dict[name] = list pairs regardless of whether the user provided a filename or dict
+    If a list is provided, it will be appended to the dict with key ''
+
+    Returns a dict of name->list pairs
+
+    WARNING: This function uses base names, not the full path!  If the base names are the same, one will be ignored!
+
+    """
+
+    ndict = {}
+
+    for lst in args:
+        if isinstance(lst, list):
+            ndict.setdefault('', []).extend(lst)
+            print("WARNING: List received! Multiple lists are concatenated!")
+
+        elif isinstance(lst, dict):
+            ndict.update(lst)
+        
+        else:
+            name = os.path.basename(lst)
+            ndict[name] = parsers.get_list_from_file(lst)
+
+    return ndict
 
 def union(list1, list2):
     """
@@ -40,24 +69,22 @@ def union(list1, list2):
 
     return union_indices_list2, union_indices_list1
 
-def scale_to_set(sdata, filenames):
+def scale_to_set(sdata, *filenames):
     """
 
     scale_to_set(filename)
 
         Removes all but those sample_ids you specifiy.
 
-        filenames    - array of filenames, each file containing list of sample ids to use
+        filenames    - filenames or dicts
+                       each file containing list of sample ids to use
+                       or each dict containing name->list of sample ids
 
     Returns: modified sdata object, dict of cluster->indices
 
     """
 
-    defined_clusters = {}
-
-    for filename in filenames:
-        name = os.path.basename(filename)
-        defined_clusters[name] = parsers.get_list_from_file(filename)
+    defined_clusters = list_or_files(*filenames)
 
     sample_id_list = [ x.sample_id for x in sdata.samples ]
     samples_to_keep = sum([ defined_clusters[x] for x in defined_clusters ], [])
@@ -76,14 +103,15 @@ def scale_to_set(sdata, filenames):
 
     return sdata, defined_clusters
 
-def scale_probes(sdata, filename):
+def scale_probes(sdata, *filenames):
     """
 
     scale_probes(sdata, filename)
         
         Removes all gene probes except those you specify
 
-        filename    - File containing a list of probes, one on each line
+        filename    - File(s) containing a list of probes, one on each line
+                      Also accepted: Lists, dicts.  Only the values will be used in the dicts.
 
     Returns: modified sdata object
 
@@ -92,36 +120,27 @@ def scale_probes(sdata, filename):
 
     """
 
-    probes_to_keep = tuple(union(sdata.gene_names, parsers.get_list_from_file(filename))[0])
+    plist = sum(list_or_files(*filenames).values(), [])
+
+    probes_to_keep = tuple(union(sdata.gene_names, plist)[0])
 
     sdata.M = sdata.M.take(probes_to_keep, 1)
     sdata.gene_names = sdata.gene_names.take(probes_to_keep)
 
     return sdata
 
-def crop_sample_list(filen, remfile):
-    #filen: sample list to cropped
-    #remfile: samples you'd like to remove from filen
-
-    rem = parsers.get_list_from_file(remfile)
-    sams = numpy.array(parsers.get_list_from_file(filen)) #Take is amazing.
-
-    ind_to_remove = numpy.array(union(sams, rem)[0])
-    ind_to_keep = numpy.lib.arraysetops.setdiff1d(numpy.arange(len(sams)), ind_to_remove)
-
-    sams = sams.take(tuple(ind_to_keep))
-
-    f = open(filen, 'w')
-    for sam in sams:
-        f.write(sam)
-        f.write("\n")
-    f.close()
-
 def new_defined_clusters(sdata, conv):
-    #sdata: sample data obj
-    #conv: conversion dict, keys sample ids values new cluster assignments
-    #Stick this in your preprocess function (see common.py for subclassing help)
+    """
 
+    Define different clusters than the ones specified by your Defined Clusters, whether
+    through the GUI, modification of keep_list, or through the command line
+
+    sdata: sample data obj
+    conv: conversion dict, keys sample ids values new cluster assignments
+    Stick this in your preprocess function (see common.py for subclassing help)
+
+    """
+    
     new_clusts = {}
     s_ids = [x.sample_id for x in sdata.samples]
 
@@ -134,8 +153,12 @@ def new_defined_clusters(sdata, conv):
     return new_clusts
 
 def write_normal(sdata, filename):
-    #Takes an sdata obj and writes out a tab-delimited datafile, suitable for ParseNormal
-    #useful to convert between data formats
+    """
+
+    Takes an sdata obj and writes out a tab-delimited datafile, suitable for ParseNormal
+    useful to convert between data formats, writing PCA-selected data, etc
+
+    """
     
     if not len(sdata.gene_names) > 0: 
         raise ValueError, "No gene names found! Unsuitable for this data format."
@@ -200,30 +223,30 @@ def write_table(ndict, filename):
     f = open(filename, 'w')
     
     for key in ls:
-        f.write("\t".join([key, ndict[key]]))
+        f.write("\t".join([str(key), str(ndict[key])]))
         f.write("\n")
 
     f.close()
 
 def write_ratio(s, clust1, clust2, filename, snr_threshold=0.5, pval_threshold=0.001, ttest=False):
-    """Write SNR ratios given sdata obj, clust1 filename, clust2 filename, file to write to, threshold for SNR, threshold for pval, do ttest or not"""
+    """Write SNR ratios given sdata obj, clust1 list or filename, clust2 list or filename, file to write to, threshold for SNR, threshold for pval, do ttest or not"""
 
     M = s.M
 
     f = open(filename, 'w')
     
-    c1ind = get_indices(s, clust1)
-    c2ind = get_indices(s, clust2)
+    c1name, c1ind = get_indices(s, clust1)
+    c2name, c2ind = get_indices(s, clust2)
     
     ratios = pca.snr(M, c1ind, c2ind, snr_threshold, ttest)
     
-    f.write("%s vs %s:\n" % (clust1, clust2))
+    f.write("%s vs %s:\n" % (c1name, c2name))
     f.write("--------------------\n")
-    f.write("Gene ID\t\t%s Avg\t%s Avg\tSNR Ratio\tp-value\n" % (clust1, clust2))
+    f.write("Gene ID\t\t%s Avg\t%s Avg\tSNR Ratio\tp-value\n" % (c1name, c2name))
     
-    for result in ratios:
-        if not ttest or result[4] <= pval_threshold:
-            f.write("\n%10s\t\t%f\t\t%f\t\t%f\t\t%s" % (s.gene_names[result[1]], result[2], result[3], result[0], result[4]))
+    for ratio, gene_idx, mean1, mean2, pval in ratios:
+        if not ttest or pval <= pval_threshold:
+            f.write("\n%10s\t\t%f\t\t%f\t\t%f\t\t%s" % (s.gene_names[gene_idx], mean1, mean2, ratio, pval))
 
     f.close()
                         
@@ -235,26 +258,28 @@ def write_classifier(s, filename, clust1, clust2=None, threshold=None):
     
     s - SampleData obj
     filename - What to write the classification information to
-    clust1 - a file with one sample name on each line which composes the cluster you're trying to define
-    clust2 - an optional second cluster.  Otherwise it's every other sample.
+    clust1 - a list or a file with one sample name on each line which composes the cluster you're trying to define
+    clust2 - a list or an optional second cluster.  Otherwise it's every other sample.
     threshold - If you want to classify using only genes over a certain SNR threshold, use this.  None uses all.
 
     """
+
+    #FIXME: This needs updating
 
     M = s.M
 
     f = open(filename, 'w')
     
-    c1ind = get_indices(s, clust1)
+    c1name, c1ind = get_indices(s, clust1)
     
     if clust2 is not None:
-        c2ind = get_indices(s, clust2)
+        c2name, c2ind = get_indices(s, clust2)
     else:
         c2ind = numpy.lib.arraysetops.setdiff1d(numpy.arange(len(s.samples)), numpy.array(c1ind))
 
     rlist, w0 = pca.binary_classifier(M, c1ind, c2ind, threshold)
 
-    f.write("%s vs %s:\n" % (clust1, clust2))
+    f.write("%s vs %s:\n" % (c1name, c2name))
     f.write("--------------------\n\n")
 
     #Returns (a, b), where a is w in (wi, i) pairs and b is w0
@@ -274,8 +299,10 @@ def get_indices(s, filename):
     
     """
 
-    sams = parsers.get_list_from_file(filename)
-    return union([ x.sample_id for x in s.samples ], sams)[0]
+    sams = list_or_files(filename)
+    name = sams.keys()[0]
+    
+    return name, union([ x.sample_id for x in s.samples ], sams[name])[0]
 
 def km(timeconv, eventconv, *clusts):
     """
@@ -315,3 +342,75 @@ def km(timeconv, eventconv, *clusts):
         events.append(ev)
 
     display.km(times, events, labels)
+
+def compare_clust(*clusts):
+    """
+
+    Print some statistics about the similarities/differences between 'clusts',
+    which are files with one sample_id on each line, as per usual.
+
+    """
+
+    cdict = list_or_files(*clusts)
+
+    for fst, snd in comb(cdict.keys(), 2):
+        fst_ind, snd_ind = union(cdict[fst], cdict[snd])
+        num_common = len(fst_ind)
+
+        if num_common:
+
+            print('\n%s vs %s:' % (fst, snd))
+            print('Common: %s (%f, %f) (%s/%s, %s/%s)' % (num_common, float(num_common) / len(cdict[fst]), float(num_common) / len(cdict[snd]), num_common, len(cdict[fst]), num_common, len(cdict[snd])))
+
+def write_list(ls, filename):
+    """
+
+    Write a simple list to a file, each element on one line.
+
+    Suitable for cluster definitions, etc
+
+    """
+
+    f = open(filename, 'w')
+
+    for x in ls:
+        f.write(str(x))
+        f.write('\n')
+
+    f.close()
+
+def create_mvpa_dataset(s, *names):
+
+    from mvpa.suite import Dataset
+    
+    dset = None
+
+    def_clusters = list_or_files(*names)
+
+    for name in def_clusters:
+        n, ind = get_indices(s, {name: def_clusters[name]})
+        
+        if dset:
+            dset += Dataset(samples=s.M.take(tuple(ind), 0), labels=n)
+        else:
+            dset = Dataset(samples=s.M.take(tuple(ind), 0), labels=n)
+
+    return dset
+
+def cv_workflow(s, fdict, clf):
+
+    from mvpa.suite import CrossValidatedTransferError, TransferError, NFoldSplitter
+
+    errors = []
+    confusions = []
+
+    for i in xrange(len(s.M[0]) - 1):
+        pset = list(s.gene_names)[:-1]
+        scale_probes(s, pset)
+        dset = create_mvpa_dataset(s, fdict)
+        cv = CrossValidatedTransferError(TransferError(clf), NFoldSplitter(), enable_states=['results', 'confusion'])
+        er = cv(dset)
+        errors.append((len(s.M[0]), er))
+        confusions.append((len(s.M[0]), cv.confusion.asstring(description=1)))
+
+    return errors, confusions

@@ -25,8 +25,8 @@ along with ConsensusCluster.  If not, see <http://www.gnu.org/licenses/>.
 
 """
 
-import sys
-from numpy import array
+import sys, pca, scripts
+from numpy import array, vstack, float32
 
 class SampleData(object):
     """
@@ -110,7 +110,7 @@ class BaseParser(object):
 
         data_handle.close()
 
-        self.M = array([ x.data for x in self.samples ])
+        self.M = array([ x.data for x in self.samples ]) #, dtype=float32) FIXME: Not until we update euclidean...
 
         for sam in self.samples:
             del sam.data
@@ -145,6 +145,50 @@ class BaseParser(object):
     def __getitem__(self, x):
 
         return self.samples[x]
+
+    def __add__(self, x):
+        """Add two BaseParser objects together.  If the gene lists are not the same, they will be reduced to the common set."""
+
+        #if not (self.gene_names == x.gene_names).all():
+        #    raise ValueError, "Genes for each set are not identical!"
+
+        if len(self.gene_names) and len(x.gene_names):
+            fst, snd = scripts.union(self.gene_names, x.gene_names)
+
+            if not len(fst):
+                raise ValueError, "No matching gene names in either set! Cannot concatenate."
+
+            gene_names = self.gene_names.take(tuple(fst))
+            
+            M = self.M.take(fst, 1) #Memory-intensive but we certainly don't want to
+            N = x.M.take(snd, 1)    #change the objects themselves
+
+        else:
+            print('WARNING: Concatenating one or more sets without a gene list! Do so at your own risk!')
+
+        c = NullParser()
+
+        c.gene_names = gene_names
+        c.samples = self.samples + x.samples
+        c.M = vstack((M, N))
+
+        return c
+    
+    def normalise(self, log2=False, sub_medians=True, center=False, scale=False):
+        """Perform matrix normalisation.  See pca.normalise for details."""
+
+        self.M = pca.normalise(self.M, log2=log2, sub_medians=sub_medians, center=center, scale=scale)
+
+
+class NullParser(BaseParser):
+    """
+
+    Null class.  Used to create new BaseParser objects.
+
+    """
+
+    def __init__(self):
+        pass
 
 
 class ParseNormal(BaseParser):
