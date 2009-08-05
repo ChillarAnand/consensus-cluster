@@ -30,6 +30,7 @@ Contents:
 		Python-matplotlib	>= 0.98.0	(For plots)
 		Python-pil			>= 1.1.6	(For consensus matrix heatmaps)
 		Python-pygtk					(GUI)
+		Python-scipy					(For ttest only, more in the future)
 	
 		psyco		(JIT compiler, speed)
 		GCC			(Compiler, see Optionally Compile C Extensions below)
@@ -74,6 +75,9 @@ Contents:
 			python common.py
 	
 		Or run common.py from any file manager.
+
+		This will bring up the GUI if pygtk is correctly installed. If not, please see 'python common.py --help'
+		for a complete list of command line options.
 
 	B. Running ConsensusCluster (MultiProcessor, Linux)
 

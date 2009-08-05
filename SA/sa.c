@@ -36,7 +36,7 @@ sa_cost(PyObject *self, PyObject *args)
         return NULL;
 
 	if (sim_matrix->nd != 2 || sim_matrix->descr->type_num != PyArray_DOUBLE) {
-		PyErr_SetString(PyExc_ValueError, "Matrix input must be two-dimensional and of type float");
+		PyErr_SetString(PyExc_ValueError, "Matrix input must be two-dimensional and of type double or float64");
 		return NULL;
 	}
 

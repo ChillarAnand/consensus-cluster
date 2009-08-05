@@ -35,7 +35,7 @@ find_euclid_dist(PyObject *self, PyObject *args)
         return NULL;
 
 	if (python_array1->nd != 1 || python_array2->nd != 1 || python_array1->descr->type_num != PyArray_DOUBLE || python_array2->descr->type_num != PyArray_DOUBLE) {
-		PyErr_SetString(PyExc_ValueError, "Array inputs must be one-dimensional and of type float");
+		PyErr_SetString(PyExc_ValueError, "Array inputs must be one-dimensional and of type double or float64");
 		return NULL;
 	}
 
