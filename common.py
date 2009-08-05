@@ -640,7 +640,7 @@ class CommonCluster(Gtk_UI):
 
         for opt in opts:
             if opt == '-f':
-                filename = opts[opt][0]
+                filename = os.path.realpath(opts[opt][0])
                 
                 if '-p' not in opts:
                     parser = parsers.ParseNormal
@@ -1066,9 +1066,9 @@ class CommonCluster(Gtk_UI):
             for i, j in comb(xrange(len(cluster_list)), 2):
                 clust1, clust2 = cluster_list[i], cluster_list[j] #Still num, id pairs
                 
-                ttest = False
-                if kwds.has_key('ttest') and kwds['ttest']:
-                    ttest = True
+                ttest = True # v0.5: On by default
+                if kwds.has_key('ttest'):
+                    ttest = kwds['ttest']
 
                 ratios = pca.snr(M, cluster_sample_indices[clust1[1]], cluster_sample_indices[clust2[1]], threshold=threshold, significance=ttest)
                 
