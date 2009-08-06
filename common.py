@@ -647,7 +647,7 @@ class CommonCluster(Gtk_UI):
 
             elif opt == '-p': parser = eval('parsers.Parse' + opts[opt][0])
             elif opt == '-d': self.use_gtk = False
-            elif opt == '-c': self.keep_list = opts[opt]
+            elif opt == '-c': self.keep_list = [ os.path.realpath(x) for x in opts[opt] ]
             elif opt == '--nopca': self.no_pca = True
             elif opt == '--log2': settings['log2'] = True
             elif opt == '--kmeans': algs.append(cluster.KMeansCluster)
