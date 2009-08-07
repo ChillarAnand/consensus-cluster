@@ -586,6 +586,7 @@ class CommonCluster(Gtk_UI):
             print("\t-f <filename>\t\t\tLoad <filename> for clustering.  Default Parser: Normal")
             print("\t-p <parser>\t\t\tParse <filename> with <parser>.  Only valid with the -f option.  E.g. 'Normal'")
             print("\t-d\t\t\t\tDon't init display, run from console. This happens automatically if there is no\n\t\t\t\t\tdisplay or the required libraries are unavailable.")
+            print("\t--help, -h\t\t\tThis help.")
             
             print("\n\t**DATA NORMALISATION**\n")
             print("\t--log2, --nolog2\t\tPerform log2 reexpression, or turn it off. Default is off.")
@@ -605,7 +606,6 @@ class CommonCluster(Gtk_UI):
             print("\t--krange <fst> <snd>\t\tRepeat for each kvalue between <fst> and <snd> inclusive. Default is 2 to 6.")
             print("\t--subsamples  <number>\t\tNumber of clustering iterations to perform. Default is 300.")
             print("\t--subfraction <fraction>\tSelect a random <fraction> of the samples each iteration. Default is 0.80")
-            print("\t--help, -h\t\t\tThis help.")
 
             print("\n\t**CLUSTERING OPTIONS**\n")
             print("\t--kmeans\t\t\tRun the K-Means algorithm")
