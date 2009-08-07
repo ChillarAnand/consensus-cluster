@@ -544,7 +544,7 @@ class CommonCluster(Gtk_UI):
         self.set_kwds(**kwds) #Allows subclassing methods to pass along variables that aren't set in the UI.
 
         if len(sys.argv) > 1:
-            parser, filename, settings = self.handle_cmdline_args(parser, filename)
+            parser, filename, settings = self.handle_cmdline_args(parser, filename, **kwds)
             kwds.update(settings)
 
         if not self.use_gtk:
@@ -560,7 +560,7 @@ class CommonCluster(Gtk_UI):
         self.use_gtk = use_gtk
         self.no_pca = no_pca
 
-    def handle_cmdline_args(self, parser, filename):
+    def handle_cmdline_args(self, parser, filename, **kwds):
         """
 
         Should be self-explanatory.  An unrecognised option or -h will pull up the usage.
@@ -621,9 +621,9 @@ class CommonCluster(Gtk_UI):
         RUN_PLIST = 0
         last_opt = None
         
-        opts = {}     # Contains recognised options as keys and a list of their arguments as values
-        settings = {} # Handle settings normally set via the GUI
-        algs = []     # Clustering algorithms
+        opts = {}       # Contains recognised options as keys and a list of their arguments as values
+        settings = kwds # Handle settings normally set via the GUI
+        algs = []       # Clustering algorithms
 
         args = sys.argv[1:]
 
@@ -690,12 +690,35 @@ class CommonCluster(Gtk_UI):
                 log_analyse.compare(log2_dict, log1_dict, log2, log1)
                 sys.exit(0)
 
-            #FIXME: These two require passing a modified sdata, which would get overwritten later...
             elif opt == '--snr': RUN_SNR = 1
+
+            #TODO:  This one requires passing a modified sdata, which would get overwritten later...
+            #       I usually get around this in scripts by subclassing _preprocess, but I'm not sure where we could do it here
             elif opt == '--plist': RUN_PLIST = 1
             elif opt == '-h' or opt == '--help':
                 usage()
                 sys.exit(0)
+
+        if RUN_SNR:
+            if filename is None:
+                print("To use SNR list generation, please use the -f flag (and optionally -p) to select a dataset\n")
+                print("USAGE: python common.py -f mydata.txt --snr <outfile> <cluster1> <cluster2>\n")
+                sys.exit(0)
+               
+            s = parser(filename)
+
+            for k in ('log2', 'sub_medians', 'center', 'scale'):
+                if k == 'center' and 'center' not in settings:
+                    settings['center'] = True
+                else:
+                    settings.setdefault(k, False)
+
+            s.normalise(log2=settings['log2'], sub_medians=settings['sub_medians'], center=settings['center'], scale=settings['scale'])
+
+            outfile, clust1, clust2 = opts['--snr'][:3]
+
+            scripts.write_ratio(s, clust1, clust2, outfile, pval_threshold=0.05, snr_threshold=0.5, ttest=True)
+            sys.exit(0)
 
         if algs:
             settings['clustering_algs'] = algs
@@ -719,10 +742,15 @@ class CommonCluster(Gtk_UI):
 
         try:
 
-            cdir   = os.path.realpath(os.curdir)
-            tstamp = time.strftime("%Y-%m-%d %H.%M.%S")
-            os.mkdir(tstamp)
-            os.chdir(cdir + os.path.sep + tstamp)
+            @only_once
+            def newdir():
+                cdir   = os.path.realpath(os.curdir)
+                tstamp = time.strftime("%Y-%m-%d %H.%M.%S")
+                os.mkdir(tstamp)
+                os.chdir(cdir + os.path.sep + tstamp)
+                return cdir
+
+            cdir = newdir()
 
             if parser is None or filename is None:
                 console.except_to_console('No parser or no filename selected!')
@@ -1201,7 +1229,8 @@ class CommonCluster(Gtk_UI):
 
         """
 
-        os.chdir(cdir)
+        if cdir is not None:
+            os.chdir(cdir)
 
         if display.DISPLAY_ENABLED and self.use_gtk: 
 
