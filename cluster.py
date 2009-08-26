@@ -433,7 +433,7 @@ class SOMCluster(BaseCluster):
         for t in xrange(1, num_epochs):
 
             new_radius = radius * e**(-t / t_const)
-            new_learn = lr * e**(-lr / t_const)
+            new_learn = lr * e**(-t / t_const) # This should be -t...
             r = 2 * t * new_radius * new_radius
 
             for k in xrange(self.num_samples):

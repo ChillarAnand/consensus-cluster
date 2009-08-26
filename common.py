@@ -670,11 +670,11 @@ class CommonCluster(Gtk_UI):
             elif opt == '--nosubmedians': settings['sub_medians'] = False
             elif opt == '--nocenter': settings['center'] = False
             elif opt == '--noscale': settings['scale'] = False
-            elif opt == '--pcafraction': settings['pca_fraction'] = opts[opt][0]
-            elif opt == '--eigweight': settings['eigenvector_weight'] = opts[opt][0]
+            elif opt == '--pcafraction': settings['pca_fraction'] = float(opts[opt][0])
+            elif opt == '--eigweight': settings['eigenvector_weight'] = float(opts[opt][0])
             elif opt == '--krange': settings['kvalues'] = range(int(opts[opt][0]), int(opts[opt][1])+1)
-            elif opt == '--subsamples': settings['subsamples'] = opts[opt][0]
-            elif opt == '--subfraction': settings['subsample_fraction'] = opts[opt][0]
+            elif opt == '--subsamples': settings['subsamples'] = int(opts[opt][0])
+            elif opt == '--subfraction': settings['subsample_fraction'] = float(opts[opt][0])
             elif opt == '--normvar': settings['norm_var'] = True
             elif opt == '--nonormvar': settings['norm_var'] = False
             elif opt == '--comparelogs':
