@@ -31,6 +31,8 @@ import distance, treetype, display, distance
 from mpi_compat import *
 from itertools import combinations as comb
 
+from scipy import cluster as cl
+
 class BaseCluster(object):
     """
 
@@ -110,13 +112,6 @@ class HierarchicalCluster(BaseCluster):
 
         BaseCluster.__init__(self, datapoints, data_matrix, num_clusters, distance_metric, distance_matrix)
 
-        if linkage == 'average':
-            linkage = numpy.ndarray.mean
-        elif linkage == 'single':
-            linkage = numpy.ndarray.min
-        elif linkage == 'complete':
-            linkage = numpy.ndarray.max
-
         #At the moment, each independent leaf represents a cluster
         self.tree = [ treetype.Tree(value = x) for x in xrange(self.num_samples) ]
 
@@ -126,64 +121,42 @@ class HierarchicalCluster(BaseCluster):
         self._cluster_data(distance_matrix, linkage)
 
         #Shed the list
-        self.tree = self.tree[0]
+        self.tree = self.tree[-1]
 
     def _cluster_data(self, distance_matrix, linkage):
         """
-        Run until no more clusters are present. Useful for dendrogram.
-        When K has been reached, assign clusters.
+        Wrapper for scipy hierarchical clustering to interface with treetype and display.Clustmap. It's likely
+        the latter modules will disappear at some point to make way for scipy's internal dendrogramming.
 
         """
 
-        #Locals are faster
         tree, num_clusters = self.tree, self.num_clusters
 
-        cache = {} #Cache of distances between sets of clusters
-        maxint = sys.maxint
+        Z = cl.hierarchy.linkage(distance_matrix, method=linkage)
     
-        while len(tree) > 1:
-            if len(tree) == num_clusters:
-                self._assign_clusters()
-
-            clust_len = len(tree)
-            best = [maxint]
-            
-            for i, j in comb(xrange(clust_len), 2):
-                fst_clust, snd_clust = tuple(tree[i].sequence), tuple(tree[j].sequence)
-                key = (fst_clust, snd_clust)
-
-                if key not in cache:
-                    dist = linkage(distance_matrix.take(fst_clust, 0).take(snd_clust, 1))
-                    cache[key] = dist
-                else:
-                    dist = cache[key]
-
-                if dist < best[0]:
-                    best = [dist, i, j]
-
-            tree.append(treetype.Tree(left=tree[best[1]], right=tree[best[2]], dist=best[0])) #Make a stack
-
-            del tree[best[2]]
-            del tree[best[1]]
+        for i, j, dist, k in Z:
+            tree.append(treetype.Tree(left=tree[int(i)], right=tree[int(j)], dist=dist))
     
-    def _assign_clusters(self):
-        """Assign cluster ids to each obj"""
+        fclust = cl.hierarchy.fcluster(Z, num_clusters, criterion='maxclust')
+        nodes, node_ids = cl.hierarchy.leaders(Z, fclust)
+    
+        for i in xrange(num_clusters):
+            self._assign_node_clust(tree[nodes[i]], node_ids[i])
 
-        def assign_node_clust(node, id):
-            if node.value is not None:
-                node.cluster_id = id
-                return
-            else:
-                assign_node_clust(node.left, id)
-                assign_node_clust(node.right, id)
+            for index in tree[nodes[i]].sequence:
+                self.datapoints[index].cluster_id = node_ids[i]
+    
+    def _assign_node_clust(self, node, id):
+        """Assign cluster ids to nodes"""
 
-                node.cluster_id = id
+        if node.value is not None:
+            node.cluster_id = id
+            return
+        else:
+            self._assign_node_clust(node.left, id)
+            self._assign_node_clust(node.right, id)
 
-        for i in xrange(len(self.tree)):
-            assign_node_clust(self.tree[i], i)
-            
-            for index in self.tree[i].sequence:
-                self.datapoints[index].cluster_id = i
+            node.cluster_id = id
 
 
 class KMeansCluster(BaseCluster):
