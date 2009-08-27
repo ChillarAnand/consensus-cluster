@@ -86,6 +86,7 @@ def configure_logging(logname):
     file_handler = logging.FileHandler(logfile, "a")    #Output log to logfile
     
     for handler in logging.root.handlers:
+        handler.close()
         logging.root.removeHandler(handler)
 
     logging.root.addHandler(file_handler)
@@ -166,12 +167,14 @@ class ConsoleDisplay(object):
 
         self._status('[FAIL]', self.fail_colour, self.fail_tag)
 
-    def except_to_console(self, message):
-        """Writes message to console, shows failure, then raises an exception"""
+    def except_to_console(self, message, throw=False):
+        """Writes message to console, shows failure, then raises an exception if throw is true"""
 
         self.write(message)
         self.fail()
-        raise ValueError, message
+
+        if throw:
+            raise ValueError, message
 
     def _status(self, s, colour, tag=None):
         """Helper intermediate between success/fail and write"""
@@ -237,6 +240,7 @@ class ConsoleDisplay(object):
         self.logging_enabled = False
 
         for handler in logging.root.handlers:
+            handler.close()
             logging.root.removeHandler(handler)
 
     def __init__(self, log=False, logname=None, tview=None):

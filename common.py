@@ -43,7 +43,6 @@ except:
 if display.GTK_ENABLED:
     import gtk, gobject
 
-DEBUG = 0 #If true, errors in the GTK UI will cause an exception to be thrown and therefore interrupt workflow (a program restart will be required)
 
 
 class Gtk_UI(object):
@@ -552,13 +551,14 @@ class CommonCluster(Gtk_UI):
         else:
             Gtk_UI.__init__(self, parser, filename, **kwds)
 
-    def set_kwds(self, keep_list = None, pca_only = False, pca_legend = True, use_gtk = True, no_pca = False, **kwds):
+    def set_kwds(self, keep_list = None, pca_only = False, pca_legend = True, use_gtk = True, no_pca = False, coring = False, **kwds):
 
         self.keep_list = keep_list   #List of filenames of samples to keep, usually set by UI
         self.pca_only = pca_only   #Do PCA and then stop
         self.pca_legend = pca_legend  #Draw the PCA legend?
         self.use_gtk = use_gtk
         self.no_pca = no_pca
+        self.coring = coring
 
     def handle_cmdline_args(self, parser, filename, **kwds):
         """
@@ -574,7 +574,7 @@ class CommonCluster(Gtk_UI):
                                '--scale', '--noscale', '--submedians', '--nosubmedians',
                                '--pcafraction', '--eigweight', '--krange', '--subsamples', '--subfraction', '--normvar',
                                '--nonormvar', '--snr', '--comparelogs', '--plist', '--noselection', '--help',
-                               '--kmeans', '--som', '--pam', '--hier', '--euclidian', '--corr'])
+                               '--kmeans', '--som', '--pam', '--hier', '--euclidian', '--corr', '--coring'])
 
         @only_once
         def usage(unrec=None):
@@ -614,6 +614,7 @@ class CommonCluster(Gtk_UI):
             print("\t--hier\t\t\t\tRun the Hierarchical Clustering algorithm. Note that this option adds the Hierarchical\n\t\t\t\t\talgorithm to clustering iterations, rather than the 'final' consensus clustering.")
             print("\t--euclid\t\t\tCluster using the Euclidean distance metric")
             print("\t--corr\t\t\t\tCluster using the Pearson Correlation distance metric")
+            print("\t--coring\t\t\tTurns on EXPERIMENTAL coring support. Additional logfiles and images are generated which\n\t\t\t\t\tdetail suggested 'core' clusters. Take its advice at your own risk!")
             print("\n\n\tExample: python common.py -f mydata.txt -d --kmeans --log2 --submedians --noselection -c clusterdefs/*")
             print("\n\tOpens mydata.txt, log2 reexpresses and median centres the data, performs no feature selection, and begin k-means clustering using the cluster definitions in the clusterdefs folder without using the GUI.\n")
 
@@ -648,6 +649,7 @@ class CommonCluster(Gtk_UI):
             elif opt == '-p': parser = eval('parsers.Parse' + opts[opt][0])
             elif opt == '-d': self.use_gtk = False
             elif opt == '-c': self.keep_list = [ os.path.realpath(x) for x in opts[opt] ]
+            elif opt == '--coring': self.coring = True
             elif opt == '--nopca': self.no_pca = True
             elif opt == '--log2': settings['log2'] = True
             elif opt == '--kmeans': algs.append(cluster.KMeansCluster)
@@ -753,7 +755,7 @@ class CommonCluster(Gtk_UI):
             cdir = newdir()
 
             if parser is None or filename is None:
-                console.except_to_console('No parser or no filename selected!')
+                raise ValueError, 'No parser or no filename selected!'
     
             self.sdata = console.announce_wrap('Parsing data...', parser, filename, console)
     
@@ -764,7 +766,7 @@ class CommonCluster(Gtk_UI):
     
             idlist = [ x.sample_id for x in self.sdata.samples ]
             if len(dict.fromkeys(idlist)) != len(idlist):
-                console.except_to_console('One or more Sample IDs are not unique!')
+                raise ValueError, 'One or more Sample IDs are not unique!'
     
             console.announce_wrap('Running PCA...', self.run_pca, log2, sub_medians, center, scale, pca_fraction, eigenvector_weight, self.pca_legend, self.no_pca)
             
@@ -782,10 +784,7 @@ class CommonCluster(Gtk_UI):
                     self.run_cluster(i, subsamples, subsample_fraction, norm_var, kwds)
 
         except:
-            if DEBUG:
-                raise
-            else:
-                pass
+            console.except_to_console(str(sys.exc_info()[1]))
 
         self._complete_clustering(cdir, kwds)
 
@@ -907,7 +906,6 @@ class CommonCluster(Gtk_UI):
     
         M = pca.normalise(M, log2=log2, sub_medians=False, center=center, scale=scale) #PCA requires & performs mean centering, so it makes sense to subtract medians afterwards
         
-        #FIXME: I can see people wanting this...should add it to GUI
         if not self.no_pca:        
             
             V, gene_indices = pca.get_pca_genes(M, pca_fraction, eigenvector_weight)
@@ -985,7 +983,7 @@ class CommonCluster(Gtk_UI):
         self._report(clust_data, colour_map=colour_map, **args)
 
         @only_once
-        def tst():
+        def core():
             #TESTING
             dc = {}
             
@@ -1010,9 +1008,9 @@ class CommonCluster(Gtk_UI):
 
             self.makeplot(M, V, '%s Cluster PCA Plot' % num_clusters, pca_legend = True, defined_clusters = dc)
 
-        if DEBUG:
+        if self.coring:
             console.write("\nCreating Consensus PCA Plot...")
-            tst()
+            core()
 
         clust_data._reset_clusters() #Set cluster_ids to None
     
