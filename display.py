@@ -631,7 +631,12 @@ class Plot(object):
         fig = Figure()
         ax = fig.add_subplot(111)
 
-        for i in xrange(len(plots)):
+        if self.legend is not None:
+            plotlist = numpy.argsort(self.legend)
+        else:
+            plotlist = xrange(len(plots))
+
+        for i in plotlist:
 
             if plots[i].shape[0] != 2:
                 raise ValueError, "Attempting to plot matrix with row count other than 2"
