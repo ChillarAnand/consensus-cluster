@@ -118,6 +118,7 @@ class HierarchicalCluster(BaseCluster):
         if distance_matrix is None:
             distance_matrix = self._gen_distance_matrix(data_matrix, distance_metric, self.num_samples)
 
+        distance_matrix = cl.hierarchy.distance.squareform(distance_matrix, checks=False) # Prevents cl.hierarchy.linkage from reclustering (Dec 08 2009)
         self._cluster_data(distance_matrix, linkage)
 
         #Shed the list
